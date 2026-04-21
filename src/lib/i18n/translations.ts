@@ -14,6 +14,7 @@ export interface TranslationKeys {
   "nav.home": string;
   "nav.favorites": string;
   "nav.liveTV": string;
+  "nav.genres": string;
   "nav.tvGuide": string;
   "nav.movies": string;
   "nav.series": string;
@@ -186,6 +187,7 @@ const de: TranslationKeys = {
   "nav.home": "Home",
   "nav.favorites": "Favoriten",
   "nav.liveTV": "Live TV",
+  "nav.genres": "Genres",
   "nav.tvGuide": "TV Guide",
   "nav.movies": "Filme",
   "nav.series": "Serien",
@@ -349,6 +351,7 @@ const en: TranslationKeys = {
   "nav.home": "Home",
   "nav.favorites": "Favorites",
   "nav.liveTV": "Live TV",
+  "nav.genres": "Genres",
   "nav.tvGuide": "TV Guide",
   "nav.movies": "Movies",
   "nav.series": "Series",
@@ -512,6 +515,7 @@ const tr: TranslationKeys = {
   "nav.home": "Ana Sayfa",
   "nav.favorites": "Favoriler",
   "nav.liveTV": "Canlı TV",
+  "nav.genres": "Türler",
   "nav.tvGuide": "TV Rehberi",
   "nav.movies": "Filmler",
   "nav.series": "Diziler",

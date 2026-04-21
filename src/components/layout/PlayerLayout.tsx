@@ -15,6 +15,7 @@ import {
   HiBars3,
   HiXMark,
   HiTableCells,
+  HiSparkles,
 } from "react-icons/hi2";
 import { useAuthStore, useSettingsStore } from "@/lib/store";
 import { useT } from "@/lib/i18n";
@@ -23,6 +24,7 @@ const navItems = [
   { href: "/", labelKey: "nav.home" as const, icon: HiHome, isFavorite: false },
   { href: "/favorites", labelKey: "nav.favorites" as const, icon: HiStar, isFavorite: true },
   { href: "/live", labelKey: "nav.liveTV" as const, icon: HiTv, isFavorite: false },
+  { href: "/genres", labelKey: "nav.genres" as const, icon: HiSparkles, isFavorite: false },
   { href: "/epg", labelKey: "nav.tvGuide" as const, icon: HiTableCells, isFavorite: false },
   { href: "/movies", labelKey: "nav.movies" as const, icon: HiFilm, isFavorite: false },
   { href: "/series", labelKey: "nav.series" as const, icon: HiRectangleStack, isFavorite: false },
@@ -107,9 +109,14 @@ export default function PlayerLayout({
 
       const parentMap: Record<string, string> = {
         "/live": "/", "/epg": "/", "/movies": "/", "/series": "/",
-        "/search": "/", "/favorites": "/", "/settings": "/",
+        "/search": "/", "/favorites": "/", "/settings": "/", "/genres": "/",
       };
-      router.push(parentMap[p] || "/");
+      // Handle browse paths -> genres
+      if (p.startsWith("/browse/")) {
+        router.push("/genres");
+      } else {
+        router.push(parentMap[p] || "/");
+      }
       window.history.pushState({ trex: "guard" }, "");
     };
 
