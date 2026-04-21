@@ -1,0 +1,76 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model AdminUser {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         String   @default("VIEWER")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Device {
+  id          String    @id @default(cuid())
+  macAddress  String    @unique
+  deviceName  String
+  deviceModel String    @default("")
+  appVersion  String    @default("")
+  isActive    Boolean   @default(false)
+  activatedAt DateTime?
+  lastSeenAt  DateTime?
+  expiresAt   DateTime?
+  notes       String    @default("")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  playlists DevicePlaylist[]
+  commands  DeviceCommand[]
+}
+
+model Playlist {
+  id        String   @id @default(cuid())
+  name      String
+  type      String
+  m3uUrl    String?
+  serverUrl String?
+  username  String?
+  password  String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  devices DevicePlaylist[]
+}
+
+model DevicePlaylist {
+  id         String   @id @default(cuid())
+  deviceId   String
+  playlistId String
+  isPrimary  Boolean  @default(false)
+  assignedAt DateTime @default(now())
+
+  device   Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  playlist Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, playlistId])
+}
+
+model DeviceCommand {
+  id         String    @id @default(cuid())
+  deviceId   String
+  command    String
+  payload    String?
+  status     String    @default("PENDING")
+  createdAt  DateTime  @default(now())
+  executedAt DateTime?
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+}
