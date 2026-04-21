@@ -1,0 +1,1319 @@
+"use client";
+
+import { useRef, useState, useEffect, useCallback } from "react";
+import Hls from "hls.js";
+import clsx from "clsx";
+import { useT } from "@/lib/i18n";
+import {
+  HiPlay,
+  HiPause,
+  HiSpeakerWave,
+  HiSpeakerXMark,
+  HiArrowsPointingOut,
+  HiArrowsPointingIn,
+  HiChevronUp,
+  HiChevronDown,
+  HiArrowPath,
+  HiCog6Tooth,
+  HiSun,
+  HiClock,
+  HiBackward,
+  HiForward,
+  HiExclamationTriangle,
+} from "react-icons/hi2";
+import { TbPictureInPicture, TbPictureInPictureOff } from "react-icons/tb";
+
+// Persist player preferences
+function loadPref<T>(key: string, fallback: T): T {
+  if (typeof window === "undefined") return fallback;
+  const v = localStorage.getItem(`iptv-trex-${key}`);
+  if (v === null) return fallback;
+  return JSON.parse(v) as T;
+}
+function savePref(key: string, value: unknown) {
+  if (typeof window !== "undefined") localStorage.setItem(`iptv-trex-${key}`, JSON.stringify(value));
+}
+
+function formatTime(t: number): string {
+  if (!isFinite(t) || isNaN(t)) return "0:00";
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const s = Math.floor(t % 60);
+  return h > 0 ? `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}` : `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+type AspectRatio = "16:9" | "4:3" | "fill";
+
+interface VideoPlayerProps {
+  src: string;
+  title?: string;
+  contentType?: "live" | "movie" | "series";
+  initialPosition?: number;
+  onChannelNext?: () => void;
+  onChannelPrev?: () => void;
+  onBack?: () => void;
+  /** External container ref to use for fullscreen (so siblings like channel list stay visible) */
+  fullscreenContainerRef?: React.RefObject<HTMLDivElement | null>;
+  onPositionChange?: (position: number, duration: number) => void;
+  autoPlay?: boolean;
+}
+
+/**
+ * Build a proxied URL to bypass CORS/mixed-content for IPTV streams.
+ */
+function proxyUrl(url: string): string {
+  const trimmed = url.trim();
+  if (typeof window === "undefined") return trimmed;
+  if (trimmed.startsWith("/")) return trimmed;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.origin === window.location.origin) return trimmed;
+  } catch {}
+  return `/api/proxy?url=${encodeURIComponent(trimmed)}`;
+}
+
+export default function VideoPlayer({
+  src,
+  title,
+  contentType = "live",
+  initialPosition,
+  onChannelNext,
+  onChannelPrev,
+  onBack,
+  onPositionChange,
+  autoPlay = true,
+  fullscreenContainerRef,
+}: VideoPlayerProps) {
+  const t = useT();
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const hlsRef = useRef<Hls | null>(null);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const positionIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const initialSeekDoneRef = useRef(false);
+  const retryCountRef = useRef(0);
+  const stallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const swipeIndicatorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [volume, setVolume] = useState(() => loadPref("volume", 1));
+  const [isMuted, setIsMuted] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showControls, setShowControls] = useState(true);
+  const [isBuffering, setIsBuffering] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
+  const [aspectRatio, setAspectRatio] = useState<AspectRatio>(() => loadPref("aspectRatio", "16:9"));
+  const [audioTracks, setAudioTracks] = useState<{ id: number; name: string; lang: string }[]>([]);
+  const [subtitleTracks, setSubtitleTracks] = useState<{ id: number; name: string; lang: string }[]>([]);
+  const [selectedAudio, setSelectedAudio] = useState(0);
+  const [selectedSubtitle, setSelectedSubtitle] = useState(-1);
+  const [showSettings, setShowSettings] = useState(false);
+  const [loadingStatus, setLoadingStatus] = useState("Verbinde...");
+  const [brightness, setBrightness] = useState(() => loadPref("brightness", 1));
+  const [qualityLevels, setQualityLevels] = useState<{ id: number; height: number; bitrate: number }[]>([]);
+  const [selectedQuality, setSelectedQuality] = useState(-1); // -1 = auto
+  const [swipeIndicator, setSwipeIndicator] = useState<{ type: "volume" | "brightness" | "seek"; value: number; label?: string } | null>(null);
+
+  // Double-tap seek state
+  const [doubleTapSide, setDoubleTapSide] = useState<"left" | "right" | null>(null);
+  const doubleTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastTapRef = useRef<{ time: number; x: number }>({ time: 0, x: 0 });
+
+  // Playback speed
+  const [playbackSpeed, setPlaybackSpeed] = useState(() => loadPref("playbackSpeed", 1));
+
+  // PiP state
+  const [isPiP, setIsPiP] = useState(false);
+
+  // Sleep timer
+  const [sleepTimer, setSleepTimer] = useState<number>(0); // minutes remaining
+  const [showSleepMenu, setShowSleepMenu] = useState(false);
+  const sleepTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Touch gesture tracking - use refs for smooth performance (no re-renders during swipe)
+  const touchRef = useRef<{
+    startX: number; startY: number;
+    startVol: number; startBright: number;
+    startTime: number; // video currentTime at swipe start
+    side: "left" | "right" | null;
+    direction: "vertical" | "horizontal" | null;
+    swiping: boolean;
+    lastUpdate: number;
+  }>({ startX: 0, startY: 0, startVol: 1, startBright: 1, startTime: 0, side: null, direction: null, swiping: false, lastUpdate: 0 });
+
+  const isHLS = src.includes(".m3u8") || src.includes("m3u8");
+  // contentType is the source of truth — never classify live .ts streams as VOD.
+  // Xtream live URLs end with .ts but are live streams, not files.
+  const isVodContent = contentType === "movie" || contentType === "series";
+  const isLive = contentType === "live" || (!isVodContent && (duration === undefined || duration === 0 || duration === Infinity));
+
+  // Track pending play() promise to prevent AbortError
+  const playPromiseRef = useRef<Promise<void> | null>(null);
+
+  // Safe play function - waits for any pending play() to settle before calling new one
+  const safePlay = useCallback(async (vid: HTMLVideoElement) => {
+    // Wait for any pending play promise to settle
+    if (playPromiseRef.current) {
+      try { await playPromiseRef.current; } catch {}
+    }
+    const savedVol = userVolumeRef.current;
+    vid.volume = savedVol;
+    vid.muted = false;
+    const promise = vid.play();
+    playPromiseRef.current = promise;
+    return promise.then(() => {
+      vid.volume = savedVol;
+      vid.muted = false;
+      playPromiseRef.current = null;
+    }).catch((err) => {
+      playPromiseRef.current = null;
+      // If AbortError, just ignore - it means a new play/load was called
+      if (err?.name === "AbortError") return;
+      // Autoplay blocked - try muted then unmute
+      vid.muted = true;
+      const p2 = vid.play();
+      playPromiseRef.current = p2;
+      return p2.then(() => {
+        playPromiseRef.current = null;
+        setTimeout(() => {
+          vid.volume = savedVol;
+          vid.muted = false;
+        }, 100);
+      }).catch(() => { playPromiseRef.current = null; });
+    });
+  }, []);
+
+  // Properly destroy HLS instance and stop all network activity
+  const destroyHls = useCallback(() => {
+    if (hlsRef.current) {
+      hlsRef.current.stopLoad();
+      hlsRef.current.detachMedia();
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
+  }, []);
+
+  // Initialize player
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !src) return;
+
+    // alive flag: set to false on cleanup so ALL pending retry timeouts
+    // from this effect invocation become no-ops when src changes.
+    let alive = true;
+
+    setError(null);
+    setIsBuffering(true);
+    setLoadingStatus("Verbinde...");
+    initialSeekDoneRef.current = false;
+    retryCountRef.current = 0;
+
+    // Save the user's volume BEFORE any destruction (in case events fire during cleanup)
+    const savedVolume = userVolumeRef.current;
+
+    // CRITICAL: Fully stop previous stream before starting new one
+    // Pause first to prevent AbortError from pending play() promises
+    video.pause();
+    destroyHls();
+    video.removeAttribute("src");
+    video.load(); // Force browser to release previous connection
+
+    // Restore volume ref in case load() triggered volumechange events
+    userVolumeRef.current = savedVolume;
+
+    // --- Proxy cache per server hostname (sessionStorage) ---
+    // Once we learn a server needs (or doesn't need) proxy, cache it
+    // so subsequent channel switches skip the CORS probe.
+    function getServerKey(url: string): string {
+      try { return new URL(url).hostname; } catch { return "unknown"; }
+    }
+    function serverNeedsProxy(): boolean | null {
+      try {
+        const v = sessionStorage.getItem(`iptv-proxy-${getServerKey(src)}`);
+        if (v === "1") return true;
+        if (v === "0") return false;
+      } catch {}
+      return null;
+    }
+    function cacheProxyResult(needs: boolean) {
+      try { sessionStorage.setItem(`iptv-proxy-${getServerKey(src)}`, needs ? "1" : "0"); } catch {}
+    }
+
+    // Detect HTTP→HTTPS mixed content: browser will ALWAYS block these,
+    // so skip the direct attempt entirely and go straight to proxy.
+    function srcRequiresProxy(): boolean {
+      if (typeof window === "undefined") return false;
+      if (window.location.protocol !== "https:") return false;
+      try { return new URL(src).protocol === "http:"; } catch { return false; }
+    }
+
+    // HLS.js config (live vs VOD presets)
+    const hlsConfig = isVodContent ? {
+      maxBufferLength: 30, maxMaxBufferLength: 120,
+      maxBufferSize: 60 * 1000 * 1000, maxBufferHole: 0.5,
+      lowLatencyMode: false, startFragPrefetch: false, enableWorker: true,
+      fragLoadingTimeOut: 30000, manifestLoadingTimeOut: 20000, levelLoadingTimeOut: 20000,
+      fragLoadingMaxRetry: 6, manifestLoadingMaxRetry: 4, levelLoadingMaxRetry: 4, maxLoadingDelay: 4,
+    } : {
+      // Live: stable playback optimized for Xtream IPTV servers
+      maxBufferLength: 10,            // 10s buffer — enough to absorb network jitter
+      maxMaxBufferLength: 30,         // Allow up to 30s buffer for stability
+      maxBufferSize: 30 * 1000 * 1000,
+      maxBufferHole: 0.5,             // Tolerant of small gaps
+      lowLatencyMode: false,          // CRITICAL: true causes issues with IPTV servers
+      startFragPrefetch: true,        // Start fetching next fragment early
+      enableWorker: true,
+      fragLoadingTimeOut: 20000,      // 20s — generous for slow IPTV servers
+      manifestLoadingTimeOut: 15000,  // 15s — manifests can be slow
+      levelLoadingTimeOut: 15000,
+      fragLoadingMaxRetry: 5,         // More retries before giving up
+      manifestLoadingMaxRetry: 4,
+      levelLoadingMaxRetry: 4,
+      maxLoadingDelay: 1,             // Quick retry start
+      liveSyncDurationCount: 3,       // 3 segments behind live edge (stable)
+      liveMaxLatencyDurationCount: 8, // Allow drift up to 8 segments before resync
+      backBufferLength: 0,            // Free old segments immediately
+      initialLiveManifestSize: 1,     // Start with just 1 fragment for quick play
+    };
+
+    // Called when HLS manifest is parsed and ready to play
+    function onHlsReady(hls: Hls, vid: HTMLVideoElement) {
+      setIsBuffering(false);
+      setLoadingStatus("");
+      const savedVol = userVolumeRef.current;
+      vid.volume = savedVol;
+      vid.muted = false;
+      if (autoPlay) {
+        safePlay(vid).then(() => { vid.volume = userVolumeRef.current; vid.muted = false; });
+      }
+      setAudioTracks(hls.audioTracks.map((t, i) => ({ id: i, name: t.name || `Track ${i + 1}`, lang: t.lang || "" })));
+      setSubtitleTracks(hls.subtitleTracks.map((t, i) => ({ id: i, name: t.name || `Subtitle ${i + 1}`, lang: t.lang || "" })));
+      // Quality levels for selector
+      const levels = hls.levels
+        .map((l, i) => ({ id: i, height: l.height || 0, bitrate: l.bitrate || 0 }))
+        .filter((l) => l.height > 0)
+        .sort((a, b) => b.height - a.height);
+      setQualityLevels(levels);
+      setSelectedQuality(-1); // Auto
+    }
+
+    // Shared error handler for HLS.js (both direct and proxy modes)
+    function handleHlsError(
+      hls: Hls, vid: HTMLVideoElement, data: any,
+      isDirectMode: boolean, mediaRecovery: { count: number },
+    ) {
+      const httpStatus = data.response?.code;
+      const responseText = typeof data.response?.data === "string" ? data.response.data : "";
+      const is456 = httpStatus === 456 || responseText.includes("STREAM_BLOCKED_456");
+      const is458 = httpStatus === 458 || responseText.includes("MAX_CONNECTIONS_458");
+
+      if (is456 || is458) {
+        destroyHls();
+        if (retryCountRef.current < 4) {
+          retryCountRef.current++;
+          // Escalating delay: 2s, 3s, 4s, 5s — server needs time to close the old session
+          const delay = 1000 + retryCountRef.current * 1000;
+          setLoadingStatus(`Verbindung wird freigegeben (${retryCountRef.current}/4)...`);
+          setTimeout(() => {
+            if (alive) { isDirectMode ? startHlsDirect(vid) : startHlsProxy(vid); }
+          }, delay);
+        } else {
+          setError(is456 ? "456" : "458");
+          setIsBuffering(false);
+        }
+        return;
+      }
+
+      if (data.fatal) {
+        switch (data.type) {
+          case Hls.ErrorTypes.NETWORK_ERROR:
+            if (isDirectMode) {
+              // Direct mode failed mid-stream → switch to proxy
+              cacheProxyResult(true);
+              destroyHls();
+              startHlsProxy(vid);
+            } else if (retryCountRef.current < 5) {
+              retryCountRef.current++;
+              // Escalating delay: 0s, 1s, 2s, 3s, 5s
+              const retryDelay = retryCountRef.current <= 1 ? 0 : (retryCountRef.current - 1) * 1000;
+              setLoadingStatus(`Neuer Versuch (${retryCountRef.current}/5)...`);
+              if (retryDelay > 0) {
+                setTimeout(() => { if (alive) hls.startLoad(); }, retryDelay);
+              } else {
+                hls.startLoad();
+              }
+            } else {
+              setLoadingStatus("Versuche alternatives Format...");
+              destroyHls();
+              if (isVodContent) {
+                vid.src = src;
+                vid.onerror = () => {
+                  vid.onerror = () => { vid.onerror = null; setError("Stream konnte nicht geladen werden."); setIsBuffering(false); };
+                  vid.src = proxyUrl(src);
+                  if (autoPlay) safePlay(vid);
+                };
+              } else {
+                vid.src = proxyUrl(src);
+                vid.onerror = () => { vid.onerror = null; setError("Stream konnte nicht geladen werden."); setIsBuffering(false); };
+              }
+              if (autoPlay) safePlay(vid);
+            }
+            break;
+          case Hls.ErrorTypes.MEDIA_ERROR:
+            mediaRecovery.count++;
+            if (mediaRecovery.count <= 2) {
+              setLoadingStatus("Medien-Fehler wird behoben...");
+              hls.recoverMediaError();
+            } else {
+              setLoadingStatus("Versuche alternatives Codec...");
+              hls.swapAudioCodec();
+              hls.recoverMediaError();
+              mediaRecovery.count = 0;
+            }
+            break;
+          default:
+            destroyHls();
+            if (isVodContent) {
+              vid.src = src;
+              vid.onerror = () => {
+                vid.onerror = () => { vid.onerror = null; setError("Stream konnte nicht geladen werden."); setIsBuffering(false); };
+                vid.src = proxyUrl(src);
+                if (autoPlay) safePlay(vid);
+              };
+            } else {
+              vid.src = proxyUrl(src);
+            }
+            if (autoPlay) safePlay(vid);
+            break;
+        }
+      } else if (!data.fatal && data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+        setLoadingStatus("Verbindung wird wiederhergestellt...");
+      }
+    }
+
+    // TIER 2: HLS.js with direct URL (no proxy) — fastest for Chrome/Firefox
+    function startHlsDirect(vid: HTMLVideoElement) {
+      if (!alive) return;
+      destroyHls();
+      setLoadingStatus("Lade Stream...");
+
+      const hls = new Hls(hlsConfig as any);
+      hls.loadSource(src); // Direct URL — no proxy overhead
+      hls.attachMedia(vid);
+
+      let manifestLoaded = false;
+      const mediaRecovery = { count: 0 };
+
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        manifestLoaded = true;
+        cacheProxyResult(false); // Server works without proxy — remember it
+        onHlsReady(hls, vid);
+      });
+
+      hls.on(Hls.Events.FRAG_LOADED, () => { setIsBuffering(false); setLoadingStatus(""); });
+
+      hls.on(Hls.Events.ERROR, (_event, data) => {
+        if (!alive) return;
+        // Before manifest loads: network error = almost certainly CORS → proxy immediately
+        if (!manifestLoaded && data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+          cacheProxyResult(true);
+          destroyHls();
+          startHlsProxy(vid);
+          return;
+        }
+        handleHlsError(hls, vid, data, true, mediaRecovery);
+      });
+
+      hlsRef.current = hls;
+    }
+
+    // TIER 3: HLS.js with proxy — fallback when CORS blocks direct access
+    function startHlsProxy(vid: HTMLVideoElement) {
+      if (!alive) return;
+      destroyHls();
+      setLoadingStatus("Lade Stream...");
+
+      const hls = new Hls(hlsConfig as any);
+      hls.loadSource(proxyUrl(src));
+      hls.attachMedia(vid);
+
+      const mediaRecovery = { count: 0 };
+
+      hls.on(Hls.Events.MANIFEST_PARSED, () => { onHlsReady(hls, vid); });
+      hls.on(Hls.Events.FRAG_LOADED, () => { setIsBuffering(false); setLoadingStatus(""); });
+      hls.on(Hls.Events.ERROR, (_event, data) => {
+        if (!alive) return;
+        handleHlsError(hls, vid, data, false, mediaRecovery);
+      });
+
+      hlsRef.current = hls;
+    }
+
+    // CRITICAL delay for live: Xtream servers with max_connections=1 need
+    // time to register the old connection as closed before accepting a new one.
+    // Too short = 456 error. 300ms matches what TiviMate/Smarters do.
+    const startDelay = isVodContent ? 0 : 300;
+    const startTimer = setTimeout(() => {
+      if (!alive) return;
+
+      const needsProxy = srcRequiresProxy() || serverNeedsProxy() === true;
+
+      if (isHLS || isVodContent) {
+        const nativeHLS = video.canPlayType("application/vnd.apple.mpegurl") !== "";
+
+        // TIER 1: Native HLS (Safari/iOS) — direct URL, zero proxy overhead
+        if (nativeHLS && !Hls.isSupported()) {
+          setLoadingStatus("Lade Stream...");
+          if (needsProxy) {
+            video.src = proxyUrl(src);
+          } else {
+            video.src = src;
+            video.onerror = () => {
+              video.onerror = null;
+              video.src = proxyUrl(src);
+              if (autoPlay) safePlay(video);
+            };
+          }
+          if (autoPlay) safePlay(video);
+          return;
+        }
+
+        // TIER 2/3: HLS.js — skip direct attempt when proxy is required
+        if (Hls.isSupported()) {
+          if (needsProxy) {
+            startHlsProxy(video); // HTTP→HTTPS or cached: go straight to proxy
+          } else {
+            startHlsDirect(video); // Try direct first (fastest path)
+          }
+          return;
+        }
+
+        // No HLS support — proxy fallback
+        setLoadingStatus("Lade Stream...");
+        video.src = proxyUrl(src);
+        if (autoPlay) safePlay(video);
+      } else {
+        // Non-HLS content — try direct, proxy on error
+        setLoadingStatus("Lade Stream...");
+        if (needsProxy) {
+          video.src = proxyUrl(src);
+          video.onerror = () => { video.onerror = null; setError("Stream konnte nicht geladen werden."); setIsBuffering(false); };
+        } else {
+          video.src = src;
+          video.onerror = () => {
+            video.onerror = () => { video.onerror = null; setError("Stream konnte nicht geladen werden."); setIsBuffering(false); };
+            video.src = proxyUrl(src);
+            if (autoPlay) safePlay(video);
+          };
+        }
+        if (autoPlay) safePlay(video);
+      }
+    }, startDelay);
+
+    return () => {
+      alive = false;
+      clearTimeout(startTimer);
+      destroyHls();
+      if (video) video.onerror = null;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [src, autoPlay, isHLS, isVodContent, destroyHls, safePlay, retryKey]);
+
+  // Seek to initial position
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !initialPosition || initialSeekDoneRef.current) return;
+    const handleCanPlay = () => {
+      if (!initialSeekDoneRef.current && initialPosition > 0) { video.currentTime = initialPosition; initialSeekDoneRef.current = true; }
+    };
+    video.addEventListener("canplay", handleCanPlay);
+    if (video.readyState >= 3 && !initialSeekDoneRef.current && initialPosition > 0) { video.currentTime = initialPosition; initialSeekDoneRef.current = true; }
+    return () => video.removeEventListener("canplay", handleCanPlay);
+  }, [initialPosition, src]);
+
+  // Position save interval
+  useEffect(() => {
+    if (!onPositionChange) return;
+    positionIntervalRef.current = setInterval(() => {
+      const video = videoRef.current;
+      if (video && !video.paused && isFinite(video.currentTime) && video.currentTime > 0) onPositionChange(video.currentTime, video.duration || 0);
+    }, 5000);
+    return () => { if (positionIntervalRef.current) clearInterval(positionIntervalRef.current); };
+  }, [onPositionChange]);
+
+  // Save position on unmount
+  useEffect(() => {
+    return () => {
+      const video = videoRef.current;
+      if (video && onPositionChange && isFinite(video.currentTime) && video.currentTime > 0) onPositionChange(video.currentTime, video.duration || 0);
+    };
+  }, [onPositionChange]);
+
+  // Ref to track user-intended volume (never overwritten by browser resets)
+  const userVolumeRef = useRef(loadPref("volume", 1));
+
+  // Force-apply saved volume to video element
+  const applyVolume = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const vol = userVolumeRef.current;
+    video.volume = vol;
+    video.muted = false;
+    setVolume(vol);
+    setIsMuted(false);
+  }, []);
+
+  const programmaticVolumeRef = useRef(false);
+
+  // Video event listeners
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const onPlay = () => {
+      setIsPlaying(true); setIsBuffering(false); setLoadingStatus("");
+      programmaticVolumeRef.current = true;
+      video.volume = userVolumeRef.current;
+      video.muted = false;
+      programmaticVolumeRef.current = false;
+    };
+    const onPause = () => setIsPlaying(false);
+    const onTimeUpdate = () => { setCurrentTime(video.currentTime); };
+    const onDurationChange = () => setDuration(video.duration);
+    // Auto-recovery: if buffering persists >8s, restart HLS load
+    const clearStallTimer = () => {
+      if (stallTimerRef.current) { clearTimeout(stallTimerRef.current); stallTimerRef.current = null; }
+    };
+    const onWaiting = () => {
+      setIsBuffering(true); setLoadingStatus("Buffering...");
+      clearStallTimer();
+      stallTimerRef.current = setTimeout(() => {
+        if (video.paused || video.readyState >= 3) return;
+        // Stream stalled — try to recover
+        if (hlsRef.current) {
+          setLoadingStatus("Verbindung wird wiederhergestellt...");
+          // Jump to live edge first, then restart loading
+          hlsRef.current.startLoad();
+          if (!video.duration || !isFinite(video.duration)) {
+            // For live: seek to live edge to skip stale buffer
+            hlsRef.current.liveSyncPosition && (video.currentTime = hlsRef.current.liveSyncPosition);
+          }
+        } else if (video.src) {
+          video.currentTime = video.currentTime; // Force re-buffer
+        }
+      }, 8000);
+    };
+    const onCanPlay = () => {
+      setIsBuffering(false); setLoadingStatus(""); clearStallTimer();
+      programmaticVolumeRef.current = true;
+      video.volume = userVolumeRef.current;
+      video.muted = false;
+      programmaticVolumeRef.current = false;
+    };
+    const onPlaying = () => { setIsBuffering(false); setLoadingStatus(""); clearStallTimer(); };
+    const onError = () => {};
+    const onVolumeChange = () => {
+      const vol = video.volume;
+      const muted = video.muted;
+      setVolume(vol);
+      setIsMuted(muted);
+      if (!programmaticVolumeRef.current) {
+        userVolumeRef.current = vol;
+        savePref("volume", vol);
+      }
+    };
+
+    applyVolume();
+
+    video.addEventListener("play", onPlay);
+    video.addEventListener("pause", onPause);
+    video.addEventListener("timeupdate", onTimeUpdate);
+    video.addEventListener("durationchange", onDurationChange);
+    video.addEventListener("waiting", onWaiting);
+    video.addEventListener("canplay", onCanPlay);
+    video.addEventListener("playing", onPlaying);
+    video.addEventListener("error", onError);
+    video.addEventListener("volumechange", onVolumeChange);
+    return () => {
+      clearStallTimer();
+      video.removeEventListener("play", onPlay); video.removeEventListener("pause", onPause);
+      video.removeEventListener("timeupdate", onTimeUpdate); video.removeEventListener("durationchange", onDurationChange);
+      video.removeEventListener("waiting", onWaiting); video.removeEventListener("canplay", onCanPlay);
+      video.removeEventListener("playing", onPlaying); video.removeEventListener("error", onError);
+      video.removeEventListener("volumechange", onVolumeChange);
+    };
+  }, [applyVolume]);
+
+  // Use external fullscreen container if provided (so channel list etc. stay visible in fullscreen)
+  const getFullscreenTarget = useCallback(() => {
+    return fullscreenContainerRef?.current || containerRef.current;
+  }, [fullscreenContainerRef]);
+
+  // Fullscreen change + orientation lock
+  useEffect(() => {
+    const onFsChange = () => {
+      const fs = !!document.fullscreenElement;
+      setIsFullscreen(fs);
+      // Try to lock to landscape in fullscreen for better viewing
+      try {
+        const ori = screen.orientation as unknown as { lock?: (o: string) => Promise<void>; unlock?: () => void };
+        if (fs && ori.lock) {
+          ori.lock("landscape").catch(() => {});
+        } else if (!fs && ori.unlock) {
+          ori.unlock();
+        }
+      } catch {}
+    };
+    document.addEventListener("fullscreenchange", onFsChange);
+    document.addEventListener("webkitfullscreenchange", onFsChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", onFsChange);
+      document.removeEventListener("webkitfullscreenchange", onFsChange);
+    };
+  }, []);
+
+  // Auto-fullscreen on mobile (Smarters/TiviMate-style)
+  useEffect(() => {
+    const isMobile = typeof window !== "undefined" && (
+      /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+      (window.innerWidth <= 768 && "ontouchstart" in window)
+    );
+    if (isMobile && !document.fullscreenElement) {
+      const timer = setTimeout(() => {
+        const target = getFullscreenTarget();
+        target?.requestFullscreen?.().catch(() => {});
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [src, getFullscreenTarget]);
+
+  // Auto-hide controls - toggle on single tap (TiviMate-style)
+  const resetHideTimer = useCallback(() => {
+    setShowControls(true);
+    setShowSettings(false);
+    setShowSleepMenu(false);
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    hideTimerRef.current = setTimeout(() => { if (isPlaying) setShowControls(false); }, 4000);
+  }, [isPlaying]);
+
+  const toggleControls = useCallback(() => {
+    if (showControls) {
+      setShowControls(false);
+      setShowSettings(false);
+      setShowSleepMenu(false);
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    } else {
+      resetHideTimer();
+    }
+  }, [showControls, resetHideTimer]);
+
+  useEffect(() => {
+    resetHideTimer();
+    return () => { if (hideTimerRef.current) clearTimeout(hideTimerRef.current); };
+  }, [isPlaying, resetHideTimer]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      const video = videoRef.current;
+      if (!video) return;
+      switch (e.key.toLowerCase()) {
+        case " ": case "k": e.preventDefault(); video.paused ? safePlay(video) : video.pause(); resetHideTimer(); break;
+        case "f": e.preventDefault(); toggleFullscreen(); break;
+        case "m": e.preventDefault(); video.muted = !video.muted; break;
+        case "arrowleft": e.preventDefault(); video.currentTime = Math.max(0, video.currentTime - 10); resetHideTimer(); break;
+        case "arrowright": e.preventDefault(); video.currentTime = Math.min(duration, video.currentTime + 10); resetHideTimer(); break;
+        case "arrowup": { e.preventDefault(); const nv = Math.min(1, video.volume + 0.1); video.volume = nv; userVolumeRef.current = nv; savePref("volume", nv); resetHideTimer(); break; }
+        case "arrowdown": { e.preventDefault(); const nv = Math.max(0, video.volume - 0.1); video.volume = nv; userVolumeRef.current = nv; savePref("volume", nv); resetHideTimer(); break; }
+        case "p": e.preventDefault(); togglePiP(); break;
+        case "escape": if (isFullscreen) document.exitFullscreen(); break;
+      }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [duration, isFullscreen, resetHideTimer]);
+
+  const togglePlayPause = () => { const v = videoRef.current; if (v) v.paused ? safePlay(v) : v.pause(); };
+
+  const toggleFullscreen = () => {
+    const target = getFullscreenTarget();
+    if (!target) return;
+    const doc = document as Document & { webkitFullscreenElement?: Element; webkitExitFullscreen?: () => void };
+    const el = target as HTMLElement & { webkitRequestFullscreen?: () => void };
+    if (document.fullscreenElement || doc.webkitFullscreenElement) {
+      (document.exitFullscreen || doc.webkitExitFullscreen)?.call(document);
+    } else {
+      (target.requestFullscreen || el.webkitRequestFullscreen)?.call(target);
+    }
+  };
+
+  const toggleMute = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.muted = !v.muted;
+    if (!v.muted) {
+      // When unmuting, ensure volume is restored
+      v.volume = userVolumeRef.current;
+    }
+  };
+
+  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => { const v = videoRef.current; if (v) v.currentTime = Number(e.target.value); };
+
+  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = videoRef.current;
+    if (!v) return;
+    const newVol = Number(e.target.value);
+    v.volume = newVol;
+    v.muted = false;
+    userVolumeRef.current = newVol;
+    setVolume(newVol);
+    setIsMuted(false);
+    savePref("volume", newVol);
+  };
+
+  const cycleAspectRatio = () => {
+    const ratios: AspectRatio[] = ["16:9", "4:3", "fill"];
+    const next = ratios[(ratios.indexOf(aspectRatio) + 1) % ratios.length];
+    setAspectRatio(next);
+    savePref("aspectRatio", next);
+  };
+
+  const handleAudioTrack = (id: number) => { if (hlsRef.current) { hlsRef.current.audioTrack = id; setSelectedAudio(id); } setShowSettings(false); };
+  const handleSubtitleTrack = (id: number) => { if (hlsRef.current) { hlsRef.current.subtitleTrack = id; setSelectedSubtitle(id); } setShowSettings(false); };
+  const handleQualityChange = (levelId: number) => {
+    if (hlsRef.current) {
+      hlsRef.current.currentLevel = levelId; // -1 = auto
+      setSelectedQuality(levelId);
+    }
+    setShowSettings(false);
+  };
+  const qualityLabel = (height: number) => {
+    if (height >= 2160) return "4K";
+    if (height >= 1080) return "FHD";
+    if (height >= 720) return "HD";
+    if (height >= 480) return "SD";
+    return `${height}p`;
+  };
+
+  // Playback speed
+  const cyclePlaybackSpeed = useCallback(() => {
+    const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2];
+    const idx = speeds.indexOf(playbackSpeed);
+    const next = speeds[(idx + 1) % speeds.length];
+    setPlaybackSpeed(next);
+    savePref("playbackSpeed", next);
+    const v = videoRef.current;
+    if (v) v.playbackRate = next;
+  }, [playbackSpeed]);
+
+  // Apply playback speed when video loads
+  useEffect(() => {
+    const v = videoRef.current;
+    if (v && !isLive && playbackSpeed !== 1) {
+      v.playbackRate = playbackSpeed;
+    } else if (v && isLive) {
+      v.playbackRate = 1;
+    }
+  }, [src, isLive, playbackSpeed]);
+
+  // PiP toggle
+  const togglePiP = useCallback(async () => {
+    const v = videoRef.current;
+    if (!v) return;
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+      } else if (document.pictureInPictureEnabled) {
+        await v.requestPictureInPicture();
+      }
+    } catch {}
+  }, []);
+
+  // PiP event listeners
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const onEnterPiP = () => setIsPiP(true);
+    const onLeavePiP = () => setIsPiP(false);
+    v.addEventListener("enterpictureinpicture", onEnterPiP);
+    v.addEventListener("leavepictureinpicture", onLeavePiP);
+    return () => {
+      v.removeEventListener("enterpictureinpicture", onEnterPiP);
+      v.removeEventListener("leavepictureinpicture", onLeavePiP);
+    };
+  }, []);
+
+  const retry = () => {
+    setError(null);
+    retryCountRef.current = 0;
+    // Clear proxy cache so we re-probe direct vs proxy
+    try { sessionStorage.removeItem(`iptv-proxy-${new URL(src).hostname}`); } catch {}
+    setRetryKey((k) => k + 1); // Triggers the init useEffect
+  };
+
+
+  // Double-tap to seek ±10s (like YouTube/premium players)
+  const handleDoubleTap = useCallback((clientX: number) => {
+    const container = containerRef.current;
+    const video = videoRef.current;
+    if (!container || !video) return;
+    const rect = container.getBoundingClientRect();
+    const relX = clientX - rect.left;
+    const side = relX < rect.width / 2 ? "left" : "right";
+
+    if (side === "right") {
+      video.currentTime = Math.min(video.duration || 0, video.currentTime + 10);
+    } else {
+      video.currentTime = Math.max(0, video.currentTime - 10);
+    }
+    setDoubleTapSide(side);
+    if (doubleTapTimer.current) clearTimeout(doubleTapTimer.current);
+    doubleTapTimer.current = setTimeout(() => setDoubleTapSide(null), 500);
+  }, []);
+
+  // Smooth touch gesture handlers - read from video element directly for sync
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    const container = containerRef.current;
+    const video = videoRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    const relX = touch.clientX - rect.left;
+    touchRef.current = {
+      startX: touch.clientX, startY: touch.clientY,
+      startVol: video ? video.volume : 1,
+      startBright: brightness,
+      startTime: video ? video.currentTime : 0,
+      side: relX < rect.width / 2 ? "left" : "right",
+      direction: null,
+      swiping: false, lastUpdate: 0,
+    };
+  }, [brightness]);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    const t = touchRef.current;
+    const container = containerRef.current;
+    if (!container) return;
+
+    const deltaY = t.startY - touch.clientY;
+    const deltaX = touch.clientX - t.startX;
+    const absDeltaY = Math.abs(deltaY);
+    const absDeltaX = Math.abs(deltaX);
+
+    // Determine direction on first significant move
+    if (!t.direction) {
+      if (absDeltaX < 10 && absDeltaY < 10) return;
+      t.direction = absDeltaX > absDeltaY ? "horizontal" : "vertical";
+    }
+
+    t.swiping = true;
+    e.preventDefault();
+
+    // Throttle to ~60fps for smoothness
+    const now = performance.now();
+    if (now - t.lastUpdate < 16) return;
+    t.lastUpdate = now;
+
+    const rect = container.getBoundingClientRect();
+
+    if (t.direction === "horizontal" && !isLive) {
+      // Horizontal swipe = seek (VOD only)
+      const seekSensitivity = deltaX / rect.width;
+      const video = videoRef.current;
+      if (video && video.duration && isFinite(video.duration)) {
+        const seekAmount = seekSensitivity * video.duration * 0.3; // 30% of duration per full swipe
+        const newTime = Math.max(0, Math.min(video.duration, t.startTime + seekAmount));
+        video.currentTime = newTime;
+        const diff = newTime - t.startTime;
+        const sign = diff >= 0 ? "+" : "";
+        setSwipeIndicator({ type: "seek", value: newTime / video.duration, label: `${sign}${formatTime(Math.abs(diff))}` });
+      }
+    } else if (t.direction === "vertical") {
+      // Vertical swipe = volume (right) or brightness (left)
+      const sensitivity = deltaY / (rect.height * 0.5);
+      if (t.side === "right") {
+        const newVol = Math.max(0, Math.min(1, t.startVol + sensitivity));
+        const video = videoRef.current;
+        if (video) {
+          video.volume = newVol;
+          video.muted = false;
+          userVolumeRef.current = newVol;
+          setVolume(newVol);
+          setIsMuted(false);
+          savePref("volume", newVol);
+        }
+        setSwipeIndicator({ type: "volume", value: newVol });
+      } else {
+        const newBright = Math.max(0.1, Math.min(1, t.startBright + sensitivity));
+        setBrightness(newBright);
+        savePref("brightness", newBright);
+        setSwipeIndicator({ type: "brightness", value: newBright });
+      }
+    }
+  }, [isLive]);
+
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    const wasSwiping = touchRef.current.swiping;
+    touchRef.current.swiping = false;
+    touchRef.current.side = null;
+    touchRef.current.direction = null;
+    if (swipeIndicatorTimer.current) clearTimeout(swipeIndicatorTimer.current);
+    swipeIndicatorTimer.current = setTimeout(() => setSwipeIndicator(null), 600);
+
+    if (!wasSwiping && e.changedTouches.length > 0) {
+      const touch = e.changedTouches[0];
+      const now = Date.now();
+      const last = lastTapRef.current;
+      if (now - last.time < 300 && Math.abs(touch.clientX - last.x) < 50) {
+        handleDoubleTap(touch.clientX);
+        lastTapRef.current = { time: 0, x: 0 };
+      } else {
+        lastTapRef.current = { time: now, x: touch.clientX };
+        toggleControls();
+      }
+    } else if (!wasSwiping) {
+      toggleControls();
+    }
+  }, [toggleControls, handleDoubleTap]);
+
+  // Sleep timer logic
+  const startSleepTimer = useCallback((minutes: number) => {
+    if (sleepTimerRef.current) clearInterval(sleepTimerRef.current);
+    if (minutes <= 0) { setSleepTimer(0); setShowSleepMenu(false); return; }
+    setSleepTimer(minutes);
+    setShowSleepMenu(false);
+    sleepTimerRef.current = setInterval(() => {
+      setSleepTimer((prev) => {
+        if (prev <= 1) {
+          if (sleepTimerRef.current) clearInterval(sleepTimerRef.current);
+          // Pause playback when timer expires
+          const v = videoRef.current;
+          if (v) v.pause();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 60000); // every minute
+  }, []);
+
+  useEffect(() => {
+    return () => { if (sleepTimerRef.current) clearInterval(sleepTimerRef.current); };
+  }, []);
+
+  const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const aspectClass = aspectRatio === "fill" ? "object-fill" : aspectRatio === "4:3" ? "object-contain max-w-[75%] mx-auto" : "object-contain";
+
+  return (
+    <div
+      ref={containerRef}
+      className="relative w-full h-full bg-black select-none group"
+      onMouseMove={resetHideTimer}
+      onClick={(e) => {
+        if (e.target === e.currentTarget || (e.target as HTMLElement).tagName === "VIDEO") {
+          toggleControls();
+        }
+      }}
+      onDoubleClick={(e) => { handleDoubleTap(e.clientX); }}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+    >
+      <video ref={videoRef} className={clsx("w-full h-full", aspectClass)} style={{ filter: `brightness(${brightness})` }} playsInline />
+
+      {/* Double-tap seek ripple animation */}
+      {doubleTapSide && (
+        <div className={clsx(
+          "absolute top-0 h-full w-1/2 z-20 pointer-events-none flex items-center",
+          doubleTapSide === "right" ? "right-0 justify-center" : "left-0 justify-center"
+        )}>
+          <div className="flex flex-col items-center animate-ping-once">
+            {doubleTapSide === "right" ? <HiForward className="h-10 w-10 text-white/80" /> : <HiBackward className="h-10 w-10 text-white/80" />}
+            <span className="text-sm font-bold text-white/80 mt-1">10s</span>
+          </div>
+        </div>
+      )}
+
+      {/* Swipe gesture indicator - no transition for instant response */}
+      {swipeIndicator && (
+        <div className={clsx(
+          "absolute z-30 flex flex-col items-center gap-2 bg-black/70 rounded-2xl backdrop-blur-sm",
+          swipeIndicator.type === "seek"
+            ? "top-1/3 left-1/2 -translate-x-1/2 px-5 py-3"
+            : "top-1/2 -translate-y-1/2 px-3 py-4",
+          swipeIndicator.type === "volume" && "right-6",
+          swipeIndicator.type === "brightness" && "left-6"
+        )}>
+          {swipeIndicator.type === "seek" ? (
+            <>
+              <HiForward className="h-5 w-5 text-amber-400" />
+              <span className="text-lg font-bold text-white tabular-nums">{swipeIndicator.label}</span>
+            </>
+          ) : (
+            <>
+              {swipeIndicator.type === "volume" ? <HiSpeakerWave className="h-5 w-5 text-white" /> : <HiSun className="h-5 w-5 text-yellow-400" />}
+              <div className="w-1 h-24 bg-white/20 rounded-full relative overflow-hidden">
+                <div className={clsx("absolute bottom-0 w-full rounded-full", swipeIndicator.type === "volume" ? "bg-amber-500" : "bg-yellow-400")}
+                  style={{ height: `${swipeIndicator.value * 100}%` }} />
+              </div>
+              <span className="text-[10px] text-white font-medium">{Math.round(swipeIndicator.value * 100)}%</span>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Buffering */}
+      {isBuffering && !error && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 pointer-events-none gap-3">
+          <div className="w-10 h-10 border-3 border-amber-500/30 border-t-amber-500 rounded-full animate-spin" />
+          {loadingStatus && <p className="text-xs text-white/70 font-medium">{loadingStatus}</p>}
+        </div>
+      )}
+
+      {/* Error */}
+      {error && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/90 gap-6 p-8">
+          <div className="text-center max-w-md">
+            {/* Icon */}
+            <div className="flex justify-center mb-6">
+              <div className="p-4 bg-red-500/20 rounded-full">
+                <HiExclamationTriangle className="h-12 w-12 text-red-400" />
+              </div>
+            </div>
+
+            {/* Error type specific content */}
+            {error === "458" ? (
+              <>
+                <h2 className="text-xl font-bold text-white mb-2">{t("player.maxConnections")}</h2>
+                <p className="text-gray-300 text-sm mb-4">{t("player.maxConnectionsDesc")}</p>
+                <p className="text-gray-400 text-xs mb-4">{t("player.maxConnectionsHint")}</p>
+                <div className="bg-white/5 border border-white/10 rounded-lg p-4 mb-6 text-left">
+                  <p className="text-gray-200 text-xs whitespace-pre-wrap">{t("player.maxConnectionsTips")}</p>
+                </div>
+              </>
+            ) : error === "456" ? (
+              <>
+                <h2 className="text-xl font-bold text-white mb-2">Stream blockiert</h2>
+                <p className="text-gray-300 text-sm">{t("player.streamBlocked")}</p>
+              </>
+            ) : (
+              <>
+                <h2 className="text-xl font-bold text-white mb-2">Fehler</h2>
+                <p className="text-red-300 text-sm text-center">{error}</p>
+              </>
+            )}
+          </div>
+
+          {/* Retry button */}
+          <button onClick={(e) => { e.stopPropagation(); retry(); }}
+            className="flex items-center gap-2 rounded-xl bg-amber-600 px-6 py-3 text-sm font-medium text-white hover:bg-amber-500 transition-colors">
+            <HiArrowPath className="h-4 w-4" /> {t("player.tryAgain")}
+          </button>
+        </div>
+      )}
+
+      {/* Controls overlay */}
+      <div className={clsx("absolute inset-0 flex flex-col justify-between transition-opacity duration-300 pointer-events-none", showControls ? "opacity-100" : "opacity-0")}
+        onClick={(e) => e.stopPropagation()}>
+
+        {/* Top bar */}
+        <div className="flex items-center justify-between p-3 bg-gradient-to-b from-black/70 to-transparent pointer-events-auto">
+          {onBack && (
+            <button onClick={onBack} className="flex items-center text-sm text-white/80 hover:text-white h-10 px-3 rounded-lg bg-white/10">
+              {t("player.back")}
+            </button>
+          )}
+          {title && <h2 className="text-sm font-medium text-white truncate max-w-[40%] mx-auto">{title}</h2>}
+          <div className="flex items-center gap-2">
+            {/* Sleep timer */}
+            <div className="relative">
+              <button onClick={(e) => { e.stopPropagation(); setShowSleepMenu(!showSleepMenu); }}
+                className={clsx("flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs hover:bg-white/20 h-10",
+                  sleepTimer > 0 ? "bg-amber-500/30 text-amber-300" : "bg-white/10 text-white/80"
+                )}>
+                <HiClock className="h-4 w-4" />
+                {sleepTimer > 0 && <span>{sleepTimer}m</span>}
+              </button>
+              {showSleepMenu && (
+                <div className="absolute top-12 right-0 w-36 rounded-xl glass-panel overflow-hidden shadow-2xl z-40" onClick={(e) => e.stopPropagation()}>
+                  <p className="text-[10px] text-gray-500 uppercase tracking-wider p-2.5 pb-1">Sleep Timer</p>
+                  {[
+                    { label: "Aus", min: 0 },
+                    { label: "15 Min", min: 15 },
+                    { label: "30 Min", min: 30 },
+                    { label: "45 Min", min: 45 },
+                    { label: "1 Std", min: 60 },
+                    { label: "2 Std", min: 120 },
+                  ].map((opt) => (
+                    <button key={opt.min} onClick={() => startSleepTimer(opt.min)}
+                      className={clsx("block w-full text-left text-sm py-2 px-3",
+                        sleepTimer === opt.min ? "text-amber-400 bg-amber-500/10" : "text-gray-300 hover:bg-white/5"
+                      )}>{opt.label}</button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button onClick={cycleAspectRatio} className="rounded-lg bg-white/10 px-2.5 py-1.5 text-xs text-white/80 hover:bg-white/20 h-10">
+              {aspectRatio}
+            </button>
+          </div>
+        </div>
+
+        {/* Center controls - minimalistic */}
+        <div className="flex items-center justify-center gap-6 pointer-events-auto">
+          {onChannelPrev && (
+            <button onClick={onChannelPrev} className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white/70 hover:bg-white/20">
+              <HiChevronUp className="h-5 w-5" />
+            </button>
+          )}
+          <button onClick={togglePlayPause} className="flex h-16 w-16 items-center justify-center rounded-full bg-white/20 text-white backdrop-blur-sm hover:bg-white/30 shadow-xl">
+            {isPlaying ? <HiPause className="h-8 w-8" /> : <HiPlay className="h-8 w-8 ml-0.5" />}
+          </button>
+          {onChannelNext && (
+            <button onClick={onChannelNext} className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white/70 hover:bg-white/20">
+              <HiChevronDown className="h-5 w-5" />
+            </button>
+          )}
+        </div>
+
+        {/* Bottom bar */}
+        <div className="p-3 bg-gradient-to-t from-black/70 to-transparent pointer-events-auto">
+          {!isLive && (
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-xs font-semibold text-white/90 w-12 text-right tabular-nums">{formatTime(currentTime)}</span>
+              <div className="relative flex-1 h-[14px] flex items-center group/seek">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full h-[4px] rounded-full bg-white/20 group-hover/seek:h-[8px] transition-all">
+                    <div className="h-full rounded-full bg-amber-500" style={{ width: `${progressPercent}%` }} />
+                  </div>
+                </div>
+                {/* Use duration as max, minimum 1 to ensure slider is always draggable */}
+                <input type="range" min={0} max={duration > 0 ? duration : 1} step={0.1} value={currentTime} onChange={handleSeek}
+                  className="absolute inset-0 w-full h-full appearance-none bg-transparent cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-[14px] [&::-webkit-slider-thumb]:w-[14px] [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-amber-500 [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white" />
+              </div>
+              <span className="text-xs font-semibold text-white/90 w-12 tabular-nums">{duration > 0 ? formatTime(duration) : "--:--"}</span>
+            </div>
+          )}
+
+          {isLive && (
+            <div className="flex items-center gap-1.5 mb-2">
+              <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+              <span className="text-xs font-medium text-red-400">LIVE</span>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {/* Skip backward for VOD */}
+              {!isLive && (
+                <button onClick={() => { const v = videoRef.current; if (v) v.currentTime = Math.max(0, v.currentTime - 10); }}
+                  className="text-white/80 hover:text-white h-10 flex items-center justify-center gap-0.5 px-1" title="-10s">
+                  <HiBackward className="h-5 w-5" />
+                  <span className="text-[10px] font-semibold">10</span>
+                </button>
+              )}
+              <button onClick={togglePlayPause} className="text-white/80 hover:text-white h-10 w-10 flex items-center justify-center">
+                {isPlaying ? <HiPause className="h-5 w-5" /> : <HiPlay className="h-5 w-5" />}
+              </button>
+              {/* Skip forward for VOD */}
+              {!isLive && (
+                <button onClick={() => { const v = videoRef.current; if (v) v.currentTime = Math.min(v.duration || 0, v.currentTime + 10); }}
+                  className="text-white/80 hover:text-white h-10 flex items-center justify-center gap-0.5 px-1" title="+10s">
+                  <span className="text-[10px] font-semibold">10</span>
+                  <HiForward className="h-5 w-5" />
+                </button>
+              )}
+              <div className="flex items-center gap-1.5 group/vol">
+                <button onClick={toggleMute} className="text-white/80 hover:text-white h-10 w-10 flex items-center justify-center">
+                  {isMuted || volume === 0 ? <HiSpeakerXMark className="h-5 w-5" /> : <HiSpeakerWave className="h-5 w-5" />}
+                </button>
+                <input type="range" min={0} max={1} step={0.05} value={volume} onChange={handleVolumeChange}
+                  className="w-0 group-hover/vol:w-20 transition-all duration-200 h-1.5 appearance-none bg-white/20 rounded-full cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-[12px] [&::-webkit-slider-thumb]:w-[12px] [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white" />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {/* Playback speed for VOD */}
+              {!isLive && (
+                <button onClick={cyclePlaybackSpeed}
+                  className={clsx("rounded-lg px-2 py-1 text-xs font-bold h-8 min-w-[40px]",
+                    playbackSpeed !== 1 ? "bg-amber-500/30 text-amber-300" : "bg-white/10 text-white/70 hover:bg-white/20"
+                  )}>
+                  {playbackSpeed}x
+                </button>
+              )}
+              {/* PiP */}
+              {typeof document !== "undefined" && document.pictureInPictureEnabled && (
+                <button onClick={togglePiP} className="text-white/80 hover:text-white h-10 w-10 flex items-center justify-center" title="Bild-in-Bild">
+                  {isPiP ? <TbPictureInPictureOff className="h-5 w-5" /> : <TbPictureInPicture className="h-5 w-5" />}
+                </button>
+              )}
+              {(audioTracks.length > 1 || subtitleTracks.length > 0 || qualityLevels.length > 1) && (
+                <div className="relative">
+                  <button onClick={(e) => { e.stopPropagation(); setShowSettings(!showSettings); }}
+                    className="text-white/80 hover:text-white h-10 w-10 flex items-center justify-center">
+                    <HiCog6Tooth className="h-5 w-5" />
+                  </button>
+                  {showSettings && (
+                    <div className="absolute bottom-12 right-0 w-56 rounded-xl glass-panel overflow-hidden shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                      {audioTracks.length > 1 && (
+                        <div className="p-2.5 border-b border-white/10">
+                          <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1.5">Audio</p>
+                          {audioTracks.map((t) => (
+                            <button key={t.id} onClick={() => handleAudioTrack(t.id)}
+                              className={clsx("block w-full text-left text-sm py-1.5 px-2.5 rounded-lg",
+                                selectedAudio === t.id ? "text-amber-400 bg-amber-500/10" : "text-gray-300 hover:bg-white/5"
+                              )}>{t.name} {t.lang && `(${t.lang})`}</button>
+                          ))}
+                        </div>
+                      )}
+                      {subtitleTracks.length > 0 && (
+                        <div className="p-2.5 border-b border-white/10">
+                          <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1.5">Untertitel</p>
+                          <button onClick={() => handleSubtitleTrack(-1)}
+                            className={clsx("block w-full text-left text-sm py-1.5 px-2.5 rounded-lg",
+                              selectedSubtitle === -1 ? "text-amber-400 bg-amber-500/10" : "text-gray-300 hover:bg-white/5"
+                            )}>Aus</button>
+                          {subtitleTracks.map((t) => (
+                            <button key={t.id} onClick={() => handleSubtitleTrack(t.id)}
+                              className={clsx("block w-full text-left text-sm py-1.5 px-2.5 rounded-lg",
+                                selectedSubtitle === t.id ? "text-amber-400 bg-amber-500/10" : "text-gray-300 hover:bg-white/5"
+                              )}>{t.name} {t.lang && `(${t.lang})`}</button>
+                          ))}
+                        </div>
+                      )}
+                      {qualityLevels.length > 1 && (
+                        <div className="p-2.5">
+                          <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1.5">Qualität</p>
+                          <button onClick={() => handleQualityChange(-1)}
+                            className={clsx("block w-full text-left text-sm py-1.5 px-2.5 rounded-lg",
+                              selectedQuality === -1 ? "text-amber-400 bg-amber-500/10" : "text-gray-300 hover:bg-white/5"
+                            )}>Auto</button>
+                          {qualityLevels.map((l) => (
+                            <button key={l.id} onClick={() => handleQualityChange(l.id)}
+                              className={clsx("block w-full text-left text-sm py-1.5 px-2.5 rounded-lg",
+                                selectedQuality === l.id ? "text-amber-400 bg-amber-500/10" : "text-gray-300 hover:bg-white/5"
+                              )}>
+                              {l.height}p
+                              <span className="text-[10px] text-gray-500 ml-2">{qualityLabel(l.height)} · {(l.bitrate / 1000000).toFixed(1)} Mbps</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+              <button onClick={toggleFullscreen} className="text-white/80 hover:text-white h-10 w-10 flex items-center justify-center">
+                {isFullscreen ? <HiArrowsPointingIn className="h-5 w-5" /> : <HiArrowsPointingOut className="h-5 w-5" />}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
