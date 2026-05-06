@@ -93,15 +93,15 @@ export default function BrowseCategoryPage({
     // Filter by search query
     if (searchQuery) {
       result = result.filter((item) => {
-        const name = "name" in item ? item.name : "tvgName" in item ? item.tvgName : "";
+        const name = (item as { name?: string }).name ?? "";
         return name.toLowerCase().includes(searchQuery.toLowerCase());
       });
     }
 
     // Sort
     result.sort((a, b) => {
-      const aName = "name" in a ? a.name : "tvgName" in a ? a.tvgName : "";
-      const bName = "name" in b ? b.name : "tvgName" in b ? b.tvgName : "";
+      const aName = (a as { name?: string }).name ?? "";
+      const bName = (b as { name?: string }).name ?? "";
 
       if (filters.sortBy === "name") {
         return aName.localeCompare(bName);
@@ -144,13 +144,13 @@ export default function BrowseCategoryPage({
     } else {
       // Live channel
       const channel = item as Channel;
-      url = channel.url || buildStreamUrl(creds, channel.id);
+      url = channel.url || buildStreamUrl(creds, Number(channel.id), "live");
       itemId = channel.id;
     }
 
     const referrer = window.location.pathname + window.location.search;
     router.push(
-      `/player/${itemId}?type=${type}&url=${encodeURIComponent(url)}&name=${encodeURIComponent("name" in item ? item.name : "tvgName" in item ? item.tvgName : "")}&referrer=${encodeURIComponent(referrer)}`
+      `/player/${itemId}?type=${type}&url=${encodeURIComponent(url)}&name=${encodeURIComponent((item as { name?: string }).name ?? "")}&referrer=${encodeURIComponent(referrer)}`
     );
   };
 
@@ -324,12 +324,7 @@ export default function BrowseCategoryPage({
                       : "seriesId" in item
                         ? String(item.seriesId)
                         : item.id;
-                  const itemName =
-                    "name" in item
-                      ? item.name
-                      : "tvgName" in item
-                        ? item.tvgName
-                        : "";
+                  const itemName = (item as { name?: string }).name ?? "";
                   const itemLogo =
                     "logo" in item
                       ? item.logo
@@ -374,12 +369,7 @@ export default function BrowseCategoryPage({
                       : "seriesId" in item
                         ? String(item.seriesId)
                         : item.id;
-                  const itemName =
-                    "name" in item
-                      ? item.name
-                      : "tvgName" in item
-                        ? item.tvgName
-                        : "";
+                  const itemName = (item as { name?: string }).name ?? "";
                   const itemLogo =
                     "logo" in item
                       ? item.logo

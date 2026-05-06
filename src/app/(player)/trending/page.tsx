@@ -30,7 +30,7 @@ export default function TrendingPage() {
       const watchPercentage = totalWatchTime > 0 ? (watchTime / totalWatchTime) * 100 : 0;
 
       // Trending score = recency + watch percentage
-      const recencyScore = 100 - (Date.now() - item.lastWatched) / (24 * 60 * 60 * 1000) * 10;
+      const recencyScore = 100 - (Date.now() - item.watchedAt) / (24 * 60 * 60 * 1000) * 10;
       const trendingScore = (watchPercentage / 100) * 50 + Math.max(0, recencyScore);
 
       return { ...item, trendingScore };

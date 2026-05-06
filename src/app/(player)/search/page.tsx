@@ -7,8 +7,8 @@ import {
   HiMagnifyingGlass,
   HiXMark,
   HiClock,
-  HiViewGrid,
-  HiViewList,
+  HiSquares2X2,
+  HiQueueList,
   HiAdjustmentsHorizontal,
 } from "react-icons/hi2";
 import { useAuthStore, useFavoritesStore, useRecentStore } from "@/lib/store";
@@ -308,9 +308,9 @@ export default function SearchPage() {
                     )}
                   >
                     {mode === "grid" ? (
-                      <HiViewGrid className="h-5 w-5" />
+                      <HiSquares2X2 className="h-5 w-5" />
                     ) : (
-                      <HiViewList className="h-5 w-5" />
+                      <HiQueueList className="h-5 w-5" />
                     )}
                   </button>
                 ))}

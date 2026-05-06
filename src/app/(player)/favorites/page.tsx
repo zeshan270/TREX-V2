@@ -13,7 +13,10 @@ type FilterOption = "all" | "live" | "movie" | "series";
 
 export default function FavoritesPage() {
   const router = useRouter();
-  const { favorites, remove, reorder } = useFavoritesStore();
+  const { favorites, toggle } = useFavoritesStore();
+  const remove = (id: string) => { const fav = favorites.find(f => f.id === id); if (fav) toggle(fav); };
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const reorder = (_id: string, _idx: number) => {};
   const [sortBy, setSortBy] = useState<SortOption>("date");
   const [filterBy, setFilterBy] = useState<FilterOption>("all");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");

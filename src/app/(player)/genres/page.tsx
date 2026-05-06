@@ -119,7 +119,7 @@ export default function GenresPage() {
     return (
       <div className="flex h-full items-center justify-center p-4">
         <ErrorDisplay
-          message={t("common.notLoggedIn") || "Bitte zuerst anmelden"}
+          message={"Bitte zuerst anmelden"}
           onRetry={() => router.push("/login")}
         />
       </div>

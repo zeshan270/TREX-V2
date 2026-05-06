@@ -239,19 +239,21 @@ interface SettingsState {
   parentalPin: string;
   lockedCategories: string[];
   bufferSize: number;
-  preferredFormat: "ts" | "m3u8";
+  preferredFormat: "ts" | "m3u8" | "hls" | "dash" | "mp4";
   autoplay: boolean;
   fontSize: FontSize;
   remoteControlMode: boolean;
   showChannelNumbers: boolean;
+  brightness: number;
   setPin: (pin: string) => void;
   toggleLockedCategory: (categoryId: string) => void;
   setBufferSize: (size: number) => void;
-  setPreferredFormat: (format: "ts" | "m3u8") => void;
+  setPreferredFormat: (format: "ts" | "m3u8" | "hls" | "dash" | "mp4") => void;
   setAutoplay: (auto: boolean) => void;
   setFontSize: (size: FontSize) => void;
   setRemoteControlMode: (on: boolean) => void;
   setShowChannelNumbers: (on: boolean) => void;
+  setBrightness: (v: number) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -265,6 +267,7 @@ export const useSettingsStore = create<SettingsState>()(
       fontSize: "normal" as FontSize,
       remoteControlMode: false,
       showChannelNumbers: true,
+      brightness: 100,
       setPin: (pin) => set({ parentalPin: pin }),
       toggleLockedCategory: (categoryId) => {
         const locked = get().lockedCategories;
@@ -280,6 +283,7 @@ export const useSettingsStore = create<SettingsState>()(
       setFontSize: (size) => set({ fontSize: size }),
       setRemoteControlMode: (on) => set({ remoteControlMode: on }),
       setShowChannelNumbers: (on) => set({ showChannelNumbers: on }),
+      setBrightness: (v) => set({ brightness: v }),
     }),
     { name: "iptv-trex-settings" }
   )

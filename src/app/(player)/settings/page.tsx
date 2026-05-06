@@ -191,7 +191,7 @@ export default function SettingsPage() {
                 action={
                   <select
                     value={preferredFormat}
-                    onChange={(e) => setPreferredFormat(e.target.value as "hls" | "dash" | "mp4")}
+                    onChange={(e) => setPreferredFormat(e.target.value as "ts" | "m3u8" | "hls" | "dash" | "mp4")}
                     className="bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white text-sm"
                   >
                     <option value="hls">HLS (Standard)</option>
@@ -505,7 +505,7 @@ export default function SettingsPage() {
       </div>
 
       {/* Dialogs */}
-      <PinDialog isOpen={showSetPin} onClose={() => setShowSetPin(false)} />
+      <PinDialog isOpen={showSetPin} onClose={() => setShowSetPin(false)} onSubmit={(pin) => { setPin(pin); setShowSetPin(false); }} />
       <ConfirmDialog
         isOpen={showConfirmLogout}
         title="Abmelden"

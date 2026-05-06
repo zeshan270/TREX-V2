@@ -10,7 +10,7 @@ import {
   HiOutlineHeart,
   HiGlobeAlt,
   HiStar,
-  HiViewColumns,
+  HiTableCells,
 } from "react-icons/hi2";
 import { useAuthStore, usePlayerStore, useFavoritesStore } from "@/lib/store";
 import { useT } from "@/lib/i18n";
@@ -441,7 +441,7 @@ export default function LiveTVPage() {
                   : "bg-[#181820] text-gray-300 border border-[#2a2a38] hover:border-amber-500/30"
               )}
             >
-              <HiViewColumns className="h-4 w-4" />
+              <HiTableCells className="h-4 w-4" />
               {t("live.allChannels")}
             </button>
 
