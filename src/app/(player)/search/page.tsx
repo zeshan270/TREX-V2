@@ -67,6 +67,14 @@ export default function SearchPage() {
   const isXtream = credentials && "serverUrl" in credentials;
   const creds = isXtream ? (credentials as XtreamCredentials) : null;
 
+  // Pre-load all streams into cache so search is instant
+  useEffect(() => {
+    if (!creds) return;
+    fetchLiveStreams(creds).catch(() => {});
+    fetchVodStreams(creds).catch(() => {});
+    fetchSeries(creds).catch(() => {});
+  }, [creds]);
+
   // Load recent searches from localStorage
   useEffect(() => {
     const stored = localStorage.getItem("trex-recent-searches");
