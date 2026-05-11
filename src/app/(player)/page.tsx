@@ -523,12 +523,12 @@ export default function HomePage() {
     .map(([streamId, pos]) => {
       const r = recentItems.find((x) => x.id === streamId);
       if (!r?.name) return null;
-      return { streamId, progress: pos.position / pos.duration, name: r.name, logo: proxyImg(r.logo), streamType: r.streamType || "live" };
+      return { streamId, progress: pos.position / pos.duration, name: r.name, logo: proxyImg(r.logo || ""), streamType: r.streamType || "live" };
     }).filter(Boolean) as { streamId: string; progress: number; name: string; logo?: string; streamType: string }[];
 
-  const heroItems = recentItems.slice(0, 6).map((r) => ({ id: r.id, name: r.name, logo: proxyImg(r.logo), streamType: r.streamType }));
-  const recentRow = recentItems.slice(0, 30).map((r) => ({ id: r.id, name: r.name, logo: proxyImg(r.logo), streamType: r.streamType }));
-  const favRow = favorites.slice(0, 20).map((f) => ({ id: f.id, name: f.name, logo: proxyImg(f.logo), streamType: f.streamType }));
+  const heroItems = recentItems.slice(0, 6).map((r) => ({ id: r.id, name: r.name, logo: proxyImg(r.logo || ""), streamType: r.streamType }));
+  const recentRow = recentItems.slice(0, 30).map((r) => ({ id: r.id, name: r.name, logo: proxyImg(r.logo || ""), streamType: r.streamType }));
+  const favRow = favorites.slice(0, 20).map((f) => ({ id: f.id, name: f.name, logo: proxyImg(f.logo || ""), streamType: f.streamType }));
 
   const play = (item: { id: string; streamType?: string }) => {
     nav(`/player/${item.id}?type=${item.streamType || "live"}`);

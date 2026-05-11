@@ -98,23 +98,7 @@ export default function LiveTVPage() {
     }
   }, [hasFavLive, favInitDone]);
 
-  // Auto-select Germany when not showing favorites and no country selected
   const didAutoSelect = useRef(false);
-  useEffect(() => {
-    if (didAutoSelect.current || showFavoritesOnly || showAllChannels) return;
-    if (!selectedCountry && !selectedCategory && countryGroups.length > 0) {
-      didAutoSelect.current = true;
-      const de = countryGroups.find((g) => g.code === "DE");
-      if (de && de.categories.length > 0) {
-        setSelectedCountry("DE");
-        setSelectedCategory(de.categories[0].categoryId);
-      } else {
-        const first = countryGroups[0];
-        setSelectedCountry(first.code);
-        if (first.categories.length > 0) setSelectedCategory(first.categories[0].categoryId);
-      }
-    }
-  }, [showFavoritesOnly, showAllChannels, selectedCountry, selectedCategory, countryGroups]);
 
   const isXtream = credentials && "serverUrl" in credentials;
   const creds = isXtream ? (credentials as XtreamCredentials) : null;
@@ -306,6 +290,23 @@ export default function LiveTVPage() {
       return a.name.localeCompare(b.name);
     });
   }, [categories]);
+
+  // Auto-select Germany when not showing favorites and no country selected
+  useEffect(() => {
+    if (didAutoSelect.current || showFavoritesOnly || showAllChannels) return;
+    if (!selectedCountry && !selectedCategory && countryGroups.length > 0) {
+      didAutoSelect.current = true;
+      const de = countryGroups.find((g) => g.code === "DE");
+      if (de && de.categories.length > 0) {
+        setSelectedCountry("DE");
+        setSelectedCategory(de.categories[0].categoryId);
+      } else {
+        const first = countryGroups[0];
+        setSelectedCountry(first.code);
+        if (first.categories.length > 0) setSelectedCategory(first.categories[0].categoryId);
+      }
+    }
+  }, [showFavoritesOnly, showAllChannels, selectedCountry, selectedCategory, countryGroups]);
 
   // Categories for selected country
   const countryCategories = useMemo(() => {
