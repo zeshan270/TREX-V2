@@ -89,12 +89,22 @@ export default function LiveTVPage() {
   const countryGridRef = useRef<HTMLDivElement>(null);
 
   // Auto-switch from favorites when there are none
+  const autoSwitched = useRef(false);
   useEffect(() => {
-    if (showFavoritesOnly && !favorites.some((f) => f.streamType === "live")) {
+    if (!autoSwitched.current && showFavoritesOnly && !favorites.some((f) => f.streamType === "live") && categories.length > 0) {
+      autoSwitched.current = true;
       setShowFavoritesOnly(false);
-      setShowAllChannels(true);
+      const de = countryGroups.find((g) => g.code === "DE");
+      if (de && de.categories.length > 0) {
+        setSelectedCountry("DE");
+        setSelectedCategory(de.categories[0].categoryId);
+      } else if (countryGroups.length > 0) {
+        const first = countryGroups[0];
+        setSelectedCountry(first.code);
+        if (first.categories.length > 0) setSelectedCategory(first.categories[0].categoryId);
+      }
     }
-  }, [favorites, showFavoritesOnly]);
+  }, [favorites, showFavoritesOnly, categories, countryGroups]);
 
   const isXtream = credentials && "serverUrl" in credentials;
   const creds = isXtream ? (credentials as XtreamCredentials) : null;
