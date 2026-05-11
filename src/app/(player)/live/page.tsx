@@ -126,7 +126,7 @@ export default function LiveTVPage() {
   useEffect(() => {
     if (!isXtream || !creds) return;
     if (!selectedCategory) {
-      setChannels([]);
+      if (!loadingCountryAll) setChannels([]);
       return;
     }
     setLoadingChannels(true);
