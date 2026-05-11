@@ -495,7 +495,7 @@ export default function EpgPage() {
               )}>{liveFavCount}</span>
             )}
           </button>
-          {categories.map((cat) => (
+          {categories.filter((cat) => !/adult|xxx|18\+/i.test(cat.categoryName)).map((cat) => (
             <button key={cat.categoryId} onClick={() => { setUseFavs(false); setSelectedCategory(cat.categoryId); }} className={clsx(
               "flex-shrink-0 rounded-xl px-4 py-2 text-sm font-medium transition-all whitespace-nowrap",
               !useFavs && selectedCategory === cat.categoryId ? "bg-amber-500 text-white shadow-lg shadow-amber-500/20" : "bg-[#181820] text-gray-300 border border-[#2a2a38] hover:border-amber-500/30"

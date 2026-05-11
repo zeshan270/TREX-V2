@@ -55,8 +55,10 @@ export default function SeriesPage() {
         setCategories(cats);
         setLoading(false);
         if (!selectedCategory && cats.length > 0) {
+          const german = cats.find((c) => /^GERMANY SERIE/i.test(c.categoryName));
+          const germanAny = !german ? cats.find((c) => /germany|deutsch/i.test(c.categoryName)) : null;
           const nonAdult = cats.find((c) => !/adult|xxx|18\+/i.test(c.categoryName));
-          setSelectedCategory((nonAdult || cats[0]).categoryId);
+          setSelectedCategory((german || germanAny || nonAdult || cats[0]).categoryId);
         }
       })
       .catch((err) => {
