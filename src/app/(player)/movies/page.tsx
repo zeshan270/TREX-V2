@@ -119,8 +119,25 @@ export default function MoviesPage() {
         setCategories(cats);
         setLoading(false);
         if (!selectedCategory && cats.length > 0) {
-          const nonAdult = cats.find((c) => !/adult|xxx|18\+/i.test(c.categoryName));
-          setSelectedCategory((nonAdult || cats[0]).categoryId);
+          // Find Germany or first country group with non-adult categories
+          const grouped: Record<string, { code: string; cats: Category[] }> = {};
+          cats.forEach((c) => {
+            const { countryCode } = extractCountry(c.categoryName);
+            if (!grouped[countryCode]) grouped[countryCode] = { code: countryCode, cats: [] };
+            grouped[countryCode].cats.push(c);
+          });
+          const de = grouped["DE"];
+          if (de && de.cats.length > 0) {
+            setSelectedCountry("DE");
+            const pick = de.cats.find((c) => !/adult|xxx|18\+/i.test(c.categoryName)) || de.cats[0];
+            setSelectedCategory(pick.categoryId);
+          } else {
+            const intl = grouped["XX"];
+            if (intl) {
+              const pick = intl.cats.find((c) => !/adult|xxx|18\+/i.test(c.categoryName));
+              if (pick) setSelectedCategory(pick.categoryId);
+            }
+          }
         }
       })
       .catch((err) => {
