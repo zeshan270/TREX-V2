@@ -52,13 +52,21 @@ $env:NEXT_PUBLIC_APK_BUILD = "1"
 npx prisma generate 2>&1 | Out-Null
 
 # API-Routen temporär ausblenden (nicht kompatibel mit output:'export')
-$apiDir    = "$Root\src\app\api"
-$apiDirTmp = "$Root\src\app\_api_tmp"
-$apiMoved  = $false
+$apiDir      = "$Root\src\app\api"
+$apiDirTmp   = "$Root\src\app\_api_tmp"
+$adminDir    = "$Root\src\app\(admin)"
+$adminDirTmp = "$Root\src\app\_admin_tmp"
+$apiMoved    = $false
+$adminMoved  = $false
 if (Test-Path $apiDir) {
   Rename-Item $apiDir $apiDirTmp -Force
   $apiMoved = $true
   Write-Host "   → API-Routen temporär versteckt" -ForegroundColor DarkGray
+}
+if (Test-Path $adminDir) {
+  Rename-Item $adminDir $adminDirTmp -Force
+  $adminMoved = $true
+  Write-Host "   → Admin-Seiten temporär versteckt" -ForegroundColor DarkGray
 }
 
 try {
@@ -66,10 +74,14 @@ try {
   npx next build
   if ($LASTEXITCODE -ne 0) { throw "Next.js Build fehlgeschlagen!" }
 } finally {
-  # API-Routen immer wiederherstellen
+  # API-Routen und Admin-Seiten immer wiederherstellen
   if ($apiMoved -and (Test-Path $apiDirTmp)) {
     Rename-Item $apiDirTmp $apiDir -Force
     Write-Host "   → API-Routen wiederhergestellt" -ForegroundColor DarkGray
+  }
+  if ($adminMoved -and (Test-Path $adminDirTmp)) {
+    Rename-Item $adminDirTmp $adminDir -Force
+    Write-Host "   → Admin-Seiten wiederhergestellt" -ForegroundColor DarkGray
   }
 }
 
