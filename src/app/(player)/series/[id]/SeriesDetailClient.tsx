@@ -76,7 +76,7 @@ export default function SeriesDetailPage() {
 
   function handlePlay(ep: EpisodeInfo) {
     if (!creds) return;
-    const url = buildSeriesUrl(creds, Number(ep.id), ep.containerExtension);
+    const url = buildSeriesUrl(creds, Number(ep.id), "m3u8");
     const name = `${series!.name} - ${ep.title}`;
     nav(`/player/${ep.id}?type=series&url=${encodeURIComponent(url)}&name=${encodeURIComponent(name)}`);
   }

@@ -65,7 +65,7 @@ export default function MovieDetailPage() {
 
   const handlePlay = () => {
     if (!creds || !movie) return;
-    const streamUrl = buildVodUrl(creds, movie.streamId, movie.containerExtension);
+    const streamUrl = buildVodUrl(creds, movie.streamId, "m3u8");
     nav(`/player/${movie.streamId}?type=movie&url=${encodeURIComponent(streamUrl)}&name=${encodeURIComponent(movie.name)}`);
   };
 
