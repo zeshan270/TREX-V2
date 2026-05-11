@@ -49,13 +49,10 @@ export default function PlayerPage() {
   const isXtream = credentials && "serverUrl" in credentials;
   const creds = credentials as { serverUrl: string; username: string; password: string } | null;
 
-  // Ensure all stream URLs use HTTPS when on HTTPS page (enables direct streaming)
+  // Don't upgrade stream URLs to HTTPS — IPTV servers don't support HTTPS for streams.
+  // The VideoPlayer handles mixed content via its proxy fallback chain.
   const safeStreamUrl = useCallback((url: string): string => {
-    const trimmed = url.trim();
-    if (typeof window !== "undefined" && window.location.protocol === "https:" && trimmed.startsWith("http://")) {
-      return trimmed.replace(/^http:\/\//i, "https://");
-    }
-    return trimmed;
+    return url.trim();
   }, []);
 
   // Build stream URL and restore position

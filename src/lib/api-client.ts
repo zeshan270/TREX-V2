@@ -702,7 +702,7 @@ export function buildCatchupUrl(
   startTimestamp: number,
   endTimestamp: number
 ): string {
-  const base = upgradeHttps(buildBaseUrl(creds));
+  const base = buildBaseUrl(creds);
   const u = creds.username.trim();
   const p = creds.password.trim();
   const start = new Date(startTimestamp);
@@ -907,7 +907,7 @@ export function buildStreamUrl(
   type: "live" | "movie" | "series",
   extension?: string
 ): string {
-  const base = upgradeHttps(buildBaseUrl(creds));
+  const base = buildBaseUrl(creds);
   const u = creds.username.trim();
   const p = creds.password.trim();
   if (type === "live") {
