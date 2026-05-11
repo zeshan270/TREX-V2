@@ -5,6 +5,7 @@ import { nav } from "@/lib/navigate";
 import clsx from "clsx";
 import { HiStar, HiTrash, HiArrowUp, HiArrowDown, HiAdjustmentsHorizontal, HiEye } from "react-icons/hi2";
 import { useFavoritesStore } from "@/lib/store";
+import { fixImageUrl } from "@/lib/api-client";
 import { ConfirmDialog } from "@/components/ui/Modal";
 import ContentCard from "@/components/ui/ContentCard";
 
@@ -181,7 +182,7 @@ export default function FavoritesPage() {
                     <ContentCard
                       id={fav.id}
                       title={fav.name}
-                      image={fav.logo}
+                      image={fixImageUrl(fav.logo || "")}
                       isFavorite={true}
                       onClick={() => { nav(`/player/${fav.id}?type=${fav.streamType}`); }}
                       onFavoriteToggle={() => handleDeleteFavorite(fav.id)}
@@ -218,7 +219,7 @@ export default function FavoritesPage() {
 
                     {/* Image */}
                     <img
-                      src={fav.logo || ""}
+                      src={fixImageUrl(fav.logo || "")}
                       alt={fav.name}
                       className="h-12 w-12 rounded-lg object-contain bg-white/10"
                     />

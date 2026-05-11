@@ -12,17 +12,8 @@ import {
 } from "react-icons/hi2";
 import { useAuthStore, usePlayerStore, useFavoritesStore } from "@/lib/store";
 import { useT } from "@/lib/i18n";
-import { fetchLiveCategories, fetchLiveStreams, fetchFullEpg, fetchFreeEpgBulk, buildStreamUrl, buildCatchupUrl } from "@/lib/api-client";
+import { fetchLiveCategories, fetchLiveStreams, fetchFullEpg, fetchFreeEpgBulk, buildStreamUrl, buildCatchupUrl, fixImageUrl as proxyImg } from "@/lib/api-client";
 import type { Category, Channel, EpgProgram, XtreamCredentials } from "@/types";
-
-function proxyImg(url?: string): string {
-  if (!url) return "";
-  if (url.startsWith("/api/proxy")) return url;
-  if (url.startsWith("http://") || url.startsWith("https://")) {
-    return `/api/proxy?url=${encodeURIComponent(url)}`;
-  }
-  return url;
-}
 
 // ==================== Constants ====================
 const PX_PER_MS = 4 / 60000; // 4px per minute

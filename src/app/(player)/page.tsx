@@ -11,15 +11,7 @@ import {
 } from "react-icons/hi2";
 import { useAuthStore, useFavoritesStore, useRecentStore, usePlayerStore, useSettingsStore } from "@/lib/store";
 import { nav } from "@/lib/navigate";
-
-function proxyImg(url?: string): string {
-  if (!url) return "";
-  if (url.startsWith("/api/proxy")) return url;
-  if (url.startsWith("http://") || url.startsWith("https://")) {
-    return `/api/proxy?url=${encodeURIComponent(url)}`;
-  }
-  return url;
-}
+import { fixImageUrl as proxyImg } from "@/lib/api-client";
 
 // ── Nav Cards Data ─────────────────────────────────────────────────────────────
 const NAV_CARDS = [
