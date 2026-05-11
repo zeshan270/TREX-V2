@@ -88,6 +88,14 @@ export default function LiveTVPage() {
   const gridRef = useRef<HTMLDivElement>(null);
   const countryGridRef = useRef<HTMLDivElement>(null);
 
+  // Auto-switch from favorites when there are none
+  useEffect(() => {
+    if (showFavoritesOnly && !favorites.some((f) => f.streamType === "live")) {
+      setShowFavoritesOnly(false);
+      setShowAllChannels(true);
+    }
+  }, [favorites, showFavoritesOnly]);
+
   const isXtream = credentials && "serverUrl" in credentials;
   const creds = isXtream ? (credentials as XtreamCredentials) : null;
 
