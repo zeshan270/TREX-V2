@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { nav } from "@/lib/navigate";
 import clsx from "clsx";
 import {
   HiSparkles,
@@ -32,7 +32,6 @@ interface GenreGroup {
 }
 
 export default function GenresPage() {
-  const router = useRouter();
   const t = useT();
   const credentials = useAuthStore((s) => s.credentials);
 
@@ -120,7 +119,7 @@ export default function GenresPage() {
       <div className="flex h-full items-center justify-center p-4">
         <ErrorDisplay
           message={"Bitte zuerst anmelden"}
-          onRetry={() => router.push("/login")}
+          onRetry={() => { nav("/login"); }}
         />
       </div>
     );
@@ -249,9 +248,7 @@ export default function GenresPage() {
                     <button
                       key={category.categoryId}
                       onClick={() =>
-                        router.push(
-                          `/browse/${group.type}/${category.categoryId}?name=${encodeURIComponent(category.categoryName)}`
-                        )
+                        nav(`/browse/${group.type}/${category.categoryId}?name=${encodeURIComponent(category.categoryName)}`)
                       }
                       className={clsx(
                         "group relative p-6 rounded-2xl bg-gradient-to-br border border-[#2a2a38]",

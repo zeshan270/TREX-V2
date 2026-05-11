@@ -1,14 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { nav } from "@/lib/navigate";
 import clsx from "clsx";
 import {
   HiCog6Tooth, HiLockClosed, HiTrash, HiDeviceTablet,
   HiArrowLeftOnRectangle, HiShieldCheck, HiTv, HiEye,
   HiLanguage, HiSignal, HiListBullet, HiChevronRight,
   HiInformationCircle, HiCheckCircle, HiChartBar, HiMoon,
-  HiCommandLine, HiBellAlert
+  HiCommandLine, HiBellAlert, HiStar, HiPencil, HiPlus, HiPlay
 } from "react-icons/hi2";
 import { useAuthStore, useSettingsStore, useRecentStore } from "@/lib/store";
 import { useI18nStore, useT, LOCALE_NAMES, type Locale } from "@/lib/i18n";
@@ -57,13 +57,12 @@ function SettingSection({ title, children }: { title: string; children: React.Re
 }
 
 export default function SettingsPage() {
-  const router = useRouter();
-  const { macAddress, logout, credentials, playlistName, savedPlaylists, switchPlaylist } = useAuthStore();
+  const { macAddress, logout, credentials, playlistName, savedPlaylists, switchPlaylist, removePlaylist } = useAuthStore();
   const {
     parentalPin, bufferSize, preferredFormat, autoplay,
-    fontSize, remoteControlMode, showChannelNumbers, brightness,
+    fontSize, remoteControlMode, showChannelNumbers, brightness, startInFavorites,
     setPin, setBufferSize, setPreferredFormat, setAutoplay,
-    setFontSize, setRemoteControlMode, setShowChannelNumbers, setBrightness,
+    setFontSize, setRemoteControlMode, setShowChannelNumbers, setBrightness, setStartInFavorites,
   } = useSettingsStore();
   const clearRecent = useRecentStore((s) => s.clear);
   const { locale, setLocale } = useI18nStore();
@@ -77,7 +76,7 @@ export default function SettingsPage() {
 
   const handleLogout = () => {
     logout();
-    router.push("/login");
+    nav("/login");
   };
 
   // Device info
@@ -105,8 +104,8 @@ export default function SettingsPage() {
                 label="Sprache"
                 description="Wählen Sie Ihre bevorzugte Sprache"
                 action={
-                  <div className="flex gap-2">
-                    {["de", "en", "tr"].map((l) => (
+                  <div className="flex flex-wrap gap-2">
+                    {(["de", "en", "tr", "fr", "ar"] as Locale[]).map((l) => (
                       <button
                         key={l}
                         onClick={(e) => {
@@ -124,6 +123,30 @@ export default function SettingsPage() {
                       </button>
                     ))}
                   </div>
+                }
+              />
+            </SettingSection>
+
+            <SettingSection title="Startseite">
+              <SettingItem
+                icon={<HiStar className="h-6 w-6" />}
+                label="Immer in Favoriten starten"
+                description="App öffnet direkt die Favoriten-Seite"
+                action={
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setStartInFavorites(!startInFavorites);
+                    }}
+                    className={clsx(
+                      "px-4 py-2 rounded-lg font-semibold text-sm transition-all",
+                      startInFavorites
+                        ? "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30"
+                        : "bg-white/10 text-gray-400"
+                    )}
+                  >
+                    {startInFavorites ? "An" : "Aus"}
+                  </button>
                 }
               />
             </SettingSection>
@@ -147,12 +170,81 @@ export default function SettingsPage() {
             </SettingSection>
 
             <SettingSection title="Konto & Playlists">
-              <SettingItem
-                icon="📡"
-                label="Aktive Playlist"
-                description="Aktuell aktive IPTV-Quelle"
-                value={playlistName}
-              />
+              {/* Saved playlists manager */}
+              {savedPlaylists.length > 0 ? (
+                <div className="space-y-2 mb-2">
+                  {savedPlaylists.map((pl) => {
+                    const isActive = pl.name === playlistName;
+                    const displayUrl =
+                      pl.type === "xtream" && "serverUrl" in pl.credentials
+                        ? (pl.credentials as { serverUrl: string }).serverUrl
+                        : "url" in pl.credentials
+                          ? (pl.credentials as { url: string }).url
+                          : "";
+                    return (
+                      <div key={pl.id} className={clsx(
+                        "flex items-center gap-3 p-3 rounded-xl border transition-all",
+                        isActive
+                          ? "border-amber-500/40 bg-amber-500/10"
+                          : "border-white/8 bg-white/3 hover:bg-white/6"
+                      )}>
+                        <div className={clsx(
+                          "flex h-9 w-9 items-center justify-center rounded-lg flex-shrink-0 text-xs font-bold text-white",
+                          pl.type === "xtream" ? "bg-purple-600" : "bg-blue-600"
+                        )}>
+                          {pl.type === "xtream" ? "XC" : "M3"}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className={clsx("text-sm font-semibold truncate", isActive ? "text-amber-300" : "text-white")}>
+                            {pl.name}
+                            {isActive && <span className="ml-2 text-[10px] text-amber-400 font-black uppercase tracking-wider">Aktiv</span>}
+                          </p>
+                          <p className="text-[10px] text-gray-500 truncate">{displayUrl}</p>
+                        </div>
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          {!isActive && (
+                            <button
+                              onClick={() => { switchPlaylist(pl.id); }}
+                              className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 hover:text-green-400 hover:bg-green-500/10 transition-colors"
+                              title="Aktivieren"
+                            >
+                              <HiPlay className="h-4 w-4" />
+                            </button>
+                          )}
+                          <button
+                            onClick={() => nav(`/login?edit=${pl.id}`)}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 hover:text-blue-400 hover:bg-blue-500/10 transition-colors"
+                            title="Bearbeiten"
+                          >
+                            <HiPencil className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => { if (confirm(`"${pl.name}" löschen?`)) { removePlaylist(pl.id); } }}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                            title="Löschen"
+                          >
+                            <HiTrash className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500 px-4 py-2">Keine Playlists gespeichert.</p>
+              )}
+
+              {/* Add new playlist */}
+              <button
+                onClick={() => nav("/login")}
+                className="w-full flex items-center gap-3 p-3 rounded-xl border border-dashed border-white/15 text-gray-500 hover:text-white hover:border-white/30 hover:bg-white/5 transition-all"
+              >
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/5 flex-shrink-0">
+                  <HiPlus className="h-5 w-5" />
+                </div>
+                <span className="text-sm font-semibold">Neue Playlist hinzufügen</span>
+              </button>
+
               <SettingItem
                 icon={<HiArrowLeftOnRectangle />}
                 label="Abmelden"

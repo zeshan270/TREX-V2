@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { nav } from "@/lib/navigate";
 import clsx from "clsx";
 import { HiStar, HiTrash, HiArrowUp, HiArrowDown, HiAdjustmentsHorizontal, HiEye } from "react-icons/hi2";
 import { useFavoritesStore } from "@/lib/store";
@@ -12,11 +12,8 @@ type SortOption = "date" | "name" | "type";
 type FilterOption = "all" | "live" | "movie" | "series";
 
 export default function FavoritesPage() {
-  const router = useRouter();
-  const { favorites, toggle } = useFavoritesStore();
+  const { favorites, toggle, reorder } = useFavoritesStore();
   const remove = (id: string) => { const fav = favorites.find(f => f.id === id); if (fav) toggle(fav); };
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const reorder = (_id: string, _idx: number) => {};
   const [sortBy, setSortBy] = useState<SortOption>("date");
   const [filterBy, setFilterBy] = useState<FilterOption>("all");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
@@ -58,16 +55,11 @@ export default function FavoritesPage() {
   const handleDrop = (targetId: string) => {
     if (!draggedItem || draggedItem === targetId) return;
 
-    const draggedIndex = sorted.findIndex((f) => f.id === draggedItem);
-    const targetIndex = sorted.findIndex((f) => f.id === targetId);
+    const fromIndex = favorites.findIndex((f) => f.id === draggedItem);
+    const toIndex = favorites.findIndex((f) => f.id === targetId);
 
-    if (draggedIndex !== -1 && targetIndex !== -1) {
-      const newOrder = [...sorted];
-      [newOrder[draggedIndex], newOrder[targetIndex]] = [newOrder[targetIndex], newOrder[draggedIndex]];
-      // Update order in store
-      newOrder.forEach((fav, idx) => {
-        reorder(fav.id, idx);
-      });
+    if (fromIndex !== -1 && toIndex !== -1) {
+      reorder(fromIndex, toIndex);
     }
     setDraggedItem(null);
   };
@@ -160,7 +152,7 @@ export default function FavoritesPage() {
               Markieren Sie Ihre Lieblingskanäle und Inhalte, um sie hier zu speichern.
             </p>
             <button
-              onClick={() => router.push("/live")}
+              onClick={() => { nav("/live"); }}
               className="px-6 py-3 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-bold rounded-xl transition-all"
             >
               Zum Live TV gehen
@@ -191,7 +183,7 @@ export default function FavoritesPage() {
                       title={fav.name}
                       image={fav.logo}
                       isFavorite={true}
-                      onClick={() => router.push(`/player/${fav.id}?type=${fav.streamType}`)}
+                      onClick={() => { nav(`/player/${fav.id}?type=${fav.streamType}`); }}
                       onFavoriteToggle={() => handleDeleteFavorite(fav.id)}
                     />
                     {/* Type badge */}
@@ -246,7 +238,7 @@ export default function FavoritesPage() {
                     {/* Actions */}
                     <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button
-                        onClick={() => router.push(`/player/${fav.id}?type=${fav.streamType}`)}
+                        onClick={() => { nav(`/player/${fav.id}?type=${fav.streamType}`); }}
                         className="p-2 hover:bg-white/10 rounded-lg transition-all text-blue-400"
                       >
                         <HiEye className="h-5 w-5" />

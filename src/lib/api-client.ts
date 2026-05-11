@@ -13,6 +13,13 @@ import type {
   EpisodeInfo,
 } from "@/types";
 import { extractCountryFromGroup, type CountryInfo } from "./countries";
+import {
+  getCategories as idbGetCats, putCategories as idbPutCats,
+  getStreams as idbGetStreams, putStreams as idbPutStreams,
+  getVodInfo as idbGetVodInfo, putVodInfo as idbPutVodInfo,
+  getSeriesInfo as idbGetSeriesInfo, putSeriesInfo as idbPutSeriesInfo,
+} from "./idb";
+import { nativeFetch, isNative } from "./capacitor-http";
 
 // ==================== Response Cache ====================
 
@@ -93,11 +100,13 @@ function isExternalUrl(url: string): boolean {
  */
 async function fetchJson<T>(rawUrl: string): Promise<T> {
   const url = rawUrl.trim();
-  // Always proxy external URLs - IPTV servers don't send CORS headers
-  const needsProxy = typeof window !== "undefined" && isExternalUrl(url);
+
+  // Native APK: CapacitorHttp intercepts fetch() → native OkHttp → no CORS
+  // Browser: proxy external URLs through /api/proxy to bypass CORS
+  const needsProxy = typeof window !== "undefined" && isExternalUrl(url) && !isNative();
   const fetchUrl = needsProxy ? `/api/proxy?url=${encodeURIComponent(url)}` : url;
 
-  const res = await fetch(fetchUrl);
+  const res = needsProxy ? await fetch(fetchUrl) : await nativeFetch(url);
   if (!res.ok) {
     throw new Error(`HTTP ${res.status}: ${res.statusText}`);
   }
@@ -150,8 +159,14 @@ export async function fetchLiveCategories(
   creds: XtreamCredentials
 ): Promise<Category[]> {
   const cacheKey = buildCacheKey(creds, "get_live_categories");
-  const cached = getCached<Category[]>(cacheKey);
-  if (cached) return cached;
+  const memCached = getCached<Category[]>(cacheKey);
+  if (memCached) return memCached;
+
+  // IDB persistent cache
+  if (typeof window !== "undefined") {
+    const idb = await idbGetCats<Category[]>(`live:${creds.serverUrl}:${creds.username}`);
+    if (idb) { setCache(cacheKey, idb, CACHE_TTL_CATEGORIES); return idb; }
+  }
 
   const url = buildApiUrl(creds, "get_live_categories");
   const data = await fetchJson<
@@ -164,6 +179,7 @@ export async function fetchLiveCategories(
   }));
 
   setCache(cacheKey, result, CACHE_TTL_CATEGORIES);
+  if (typeof window !== "undefined") idbPutCats(`live:${creds.serverUrl}:${creds.username}`, result);
   return result;
 }
 
@@ -200,8 +216,13 @@ export async function fetchVodCategories(
   creds: XtreamCredentials
 ): Promise<Category[]> {
   const cacheKey = buildCacheKey(creds, "get_vod_categories");
-  const cached = getCached<Category[]>(cacheKey);
-  if (cached) return cached;
+  const memCached = getCached<Category[]>(cacheKey);
+  if (memCached) return memCached;
+
+  if (typeof window !== "undefined") {
+    const idb = await idbGetCats<Category[]>(`vod:${creds.serverUrl}:${creds.username}`);
+    if (idb) { setCache(cacheKey, idb, CACHE_TTL_CATEGORIES); return idb; }
+  }
 
   const url = buildApiUrl(creds, "get_vod_categories");
   const data = await fetchJson<
@@ -214,6 +235,7 @@ export async function fetchVodCategories(
   }));
 
   setCache(cacheKey, result, CACHE_TTL_CATEGORIES);
+  if (typeof window !== "undefined") idbPutCats(`vod:${creds.serverUrl}:${creds.username}`, result);
   return result;
 }
 
@@ -222,8 +244,13 @@ export async function fetchVodStreams(
   categoryId?: string
 ): Promise<Movie[]> {
   const cacheKey = buildCacheKey(creds, "get_vod_streams", categoryId);
-  const cached = getCached<Movie[]>(cacheKey);
-  if (cached) return cached;
+  const memCached = getCached<Movie[]>(cacheKey);
+  if (memCached) return memCached;
+
+  if (typeof window !== "undefined" && categoryId) {
+    const idb = await idbGetStreams<Movie[]>(`vod:${categoryId}`);
+    if (idb) { setCache(cacheKey, idb, CACHE_TTL_STREAMS); return idb; }
+  }
 
   let url = buildApiUrl(creds, "get_vod_streams");
   if (categoryId) url += `&category_id=${categoryId}`;
@@ -245,6 +272,7 @@ export async function fetchVodStreams(
   }));
 
   setCache(cacheKey, result, CACHE_TTL_STREAMS);
+  if (typeof window !== "undefined" && categoryId) idbPutStreams(`vod:${categoryId}`, result);
   return result;
 }
 
@@ -252,8 +280,13 @@ export async function fetchSeriesCategories(
   creds: XtreamCredentials
 ): Promise<Category[]> {
   const cacheKey = buildCacheKey(creds, "get_series_categories");
-  const cached = getCached<Category[]>(cacheKey);
-  if (cached) return cached;
+  const memCached = getCached<Category[]>(cacheKey);
+  if (memCached) return memCached;
+
+  if (typeof window !== "undefined") {
+    const idb = await idbGetCats<Category[]>(`series:${creds.serverUrl}:${creds.username}`);
+    if (idb) { setCache(cacheKey, idb, CACHE_TTL_CATEGORIES); return idb; }
+  }
 
   const url = buildApiUrl(creds, "get_series_categories");
   const data = await fetchJson<
@@ -266,6 +299,7 @@ export async function fetchSeriesCategories(
   }));
 
   setCache(cacheKey, result, CACHE_TTL_CATEGORIES);
+  if (typeof window !== "undefined") idbPutCats(`series:${creds.serverUrl}:${creds.username}`, result);
   return result;
 }
 
@@ -384,6 +418,271 @@ export async function fetchFullEpg(
   return result;
 }
 
+// ==================== Free XMLTV EPG (fallback for providers without EPG) ====================
+
+/**
+ * Free XMLTV sources – fetched through our proxy to bypass CORS.
+ * Ordered by coverage: multi-language first, then country-specific.
+ */
+// Ordered by priority — loaded SEQUENTIALLY, stops at first match
+const FREE_EPG_SOURCES = [
+  "https://epg.pw/xmltv/epg_DE.xml",   // German (highest priority)
+  "https://epg.pw/xmltv/epg_AT.xml",   // Austrian
+  "https://epg.pw/xmltv/epg_CH.xml",   // Swiss
+  "https://epg.pw/xmltv/epg_TR.xml",   // Turkish
+  "https://epg.pw/xmltv/epg_PL.xml",   // Polish
+  "https://epg.pw/xmltv/epg_UK.xml",   // UK
+  "https://epg.pw/xmltv/epg_US.xml",   // US
+  "https://epg.pw/xmltv/epg_FR.xml",   // French
+  "https://epg.pw/xmltv/epg_ES.xml",   // Spanish
+  "https://epg.pw/xmltv/epg_IT.xml",   // Italian
+  "https://epg.pw/xmltv/epg_INT.xml",  // International fallback
+];
+
+// Single in-memory cache of parsed XMLTV data keyed by source URL
+const xmltvCache = new Map<string, { programs: EpgProgram[]; fetchedAt: number }>();
+const XMLTV_TTL = 2 * 60 * 60 * 1000; // 2 hours — EPG data doesn't change often
+
+function parseXmltvDate(s: string): number {
+  // Format: 20240101120000 +0100
+  const m = s.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})\s*([\+\-]\d{4})?/);
+  if (!m) return 0;
+  const [, yr, mo, dy, hr, mn, sc, tz = "+0000"] = m;
+  const sign = tz[0] === "-" ? -1 : 1;
+  const tzH = parseInt(tz.slice(1, 3), 10);
+  const tzM = parseInt(tz.slice(3, 5), 10);
+  const utcMs = Date.UTC(+yr, +mo - 1, +dy, +hr, +mn, +sc) - sign * (tzH * 60 + tzM) * 60000;
+  return utcMs;
+}
+
+// Maps channelId → display name from <channel> elements
+const xmltvChannelNames = new Map<string, Map<string, string>>(); // sourceUrl → (channelId → displayName)
+
+async function loadXmltvSource(sourceUrl: string): Promise<EpgProgram[]> {
+  const hit = xmltvCache.get(sourceUrl);
+  if (hit && Date.now() - hit.fetchedAt < XMLTV_TTL) return hit.programs;
+
+  const proxyUrl = `/api/proxy?url=${encodeURIComponent(sourceUrl)}`;
+  const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(20000) });
+  if (!res.ok) throw new Error(`XMLTV fetch failed: ${res.status}`);
+  const text = await res.text();
+
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(text, "text/xml");
+
+  // Parse <channel> display names for better matching
+  const nameMap = new Map<string, string>();
+  doc.querySelectorAll("channel").forEach((el) => {
+    const id = el.getAttribute("id") || "";
+    const displayName = el.querySelector("display-name")?.textContent?.trim() || "";
+    if (id && displayName) nameMap.set(id, displayName);
+  });
+  xmltvChannelNames.set(sourceUrl, nameMap);
+
+  const progs: EpgProgram[] = [];
+
+  doc.querySelectorAll("programme").forEach((el) => {
+    const start = parseXmltvDate(el.getAttribute("start") || "");
+    const end   = parseXmltvDate(el.getAttribute("stop")  || "");
+    if (!start || !end) return;
+
+    const startStr = new Date(start).toISOString();
+    const endStr   = new Date(end).toISOString();
+    const chanId   = el.getAttribute("channel") || "";
+    const title    = el.querySelector("title")?.textContent?.trim() || "";
+    const desc     = el.querySelector("desc")?.textContent?.trim()  || "";
+    const category = el.querySelector("category")?.textContent?.trim() || "";
+
+    progs.push({
+      id: `${chanId}-${start}`,
+      channelId: chanId,
+      title,
+      description: desc || category,
+      start: startStr,
+      end: endStr,
+      startTimestamp: start,
+      endTimestamp: end,
+      hasArchive: false,
+    });
+  });
+
+  xmltvCache.set(sourceUrl, { programs: progs, fetchedAt: Date.now() });
+  return progs;
+}
+
+/**
+ * Attempt to find EPG from free XMLTV sources by matching channel name/tvg-id.
+ * Tries each source in order and returns first match.
+ */
+export async function fetchFreeEpg(
+  channelName: string,
+  tvgId?: string,
+  _streamId?: string
+): Promise<EpgProgram[]> {
+  // Normalise: lowercase, strip spaces/punctuation/quality suffixes
+  const norm = (s: string) =>
+    s.toLowerCase()
+      .replace(/\s*(hd|fhd|sd|4k|uhd|raw|ᴿᴬᵂ|\+|\|)/gi, "")
+      .replace(/[\s\-_.:]/g, "")
+      .trim();
+
+  const nameLower = norm(channelName);
+  // Also extract key words (3+ chars) for partial matching
+  const nameWords = channelName.toLowerCase()
+    .replace(/\s*(hd|fhd|sd|4k|uhd|raw)/gi, "")
+    .split(/[\s\-_.:]+/)
+    .filter((w) => w.length >= 3);
+
+  const idLower = tvgId ? norm(tvgId) : "";
+
+  const findBestChannel = (all: EpgProgram[], nameMap: Map<string, string>): string | null => {
+    const uniqueIds = [...new Set(all.map((p) => p.channelId))];
+
+    // 1. Exact tvg-id match on channelId or display name
+    if (idLower) {
+      const exact = uniqueIds.find((id) => norm(id) === idLower || norm(nameMap.get(id) || "") === idLower);
+      if (exact) return exact;
+    }
+
+    // 2. Exact channel name match
+    const exactName = uniqueIds.find((id) => {
+      const displayNorm = norm(nameMap.get(id) || "");
+      const idNorm = norm(id);
+      return idNorm === nameLower || displayNorm === nameLower;
+    });
+    if (exactName) return exactName;
+
+    // 3. Partial tvg-id contains/contained-by
+    if (idLower.length >= 3) {
+      const partial = uniqueIds.find((id) => {
+        const n = norm(id);
+        return n.includes(idLower) || idLower.includes(n);
+      });
+      if (partial) return partial;
+    }
+
+    // 4. Partial name match on channelId or display name
+    const partialName = uniqueIds.find((id) => {
+      const displayNorm = norm(nameMap.get(id) || "");
+      const idNorm = norm(id);
+      return idNorm.includes(nameLower) || nameLower.includes(idNorm) ||
+             displayNorm.includes(nameLower) || nameLower.includes(displayNorm);
+    });
+    if (partialName) return partialName;
+
+    // 5. Word-level match — any key word from channel name found in id/display
+    if (nameWords.length > 0) {
+      const wordMatch = uniqueIds.find((id) => {
+        const displayNorm = (nameMap.get(id) || "").toLowerCase();
+        const idStr = id.toLowerCase();
+        return nameWords.some((w) => idStr.includes(w) || displayNorm.includes(w));
+      });
+      if (wordMatch) return wordMatch;
+    }
+
+    return null;
+  };
+
+  // Load sources SEQUENTIALLY — stop as soon as we find a match
+  // (each XMLTV file is 10-50MB; parallel loading kills performance)
+  for (const src of FREE_EPG_SOURCES) {
+    try {
+      const all = await loadXmltvSource(src);
+      if (all.length === 0) continue;
+      const nameMap = xmltvChannelNames.get(src) || new Map();
+      const bestChan = findBestChannel(all, nameMap);
+      if (!bestChan) continue;
+      const matching = all.filter((p) => p.channelId === bestChan);
+      if (!matching.length) continue;
+      const winMs = 12 * 3600000;
+      const now = Date.now();
+      return matching
+        .filter((p) => (p.endTimestamp ?? 0) > now - winMs && (p.startTimestamp ?? 0) < now + winMs)
+        .sort((a, b) => (a.startTimestamp ?? 0) - (b.startTimestamp ?? 0));
+    } catch {
+      // Try next source
+    }
+  }
+  return [];
+}
+
+/**
+ * Bulk EPG lookup: loads one XMLTV source ONCE, matches ALL channels in one pass.
+ * Returns map of channel.id → EpgProgram[]. Much faster than per-channel fetchFreeEpg.
+ */
+export async function fetchFreeEpgBulk(
+  channels: { id: string; name: string; tvgId?: string }[]
+): Promise<Record<string, EpgProgram[]>> {
+  const norm = (s: string) =>
+    s.toLowerCase()
+      .replace(/\s*(hd|fhd|sd|4k|uhd|raw|ᴿᴬᵂ|\+|\|)/gi, "")
+      .replace(/[\s\-_.:]/g, "")
+      .trim();
+
+  const nameWords = (name: string) =>
+    name.toLowerCase()
+      .replace(/\s*(hd|fhd|sd|4k|uhd|raw)/gi, "")
+      .split(/[\s\-_.:]+/)
+      .filter((w) => w.length >= 3);
+
+  const winMs = 12 * 3600000;
+  const now = Date.now();
+
+  for (const src of FREE_EPG_SOURCES) {
+    try {
+      const all = await loadXmltvSource(src);
+      if (all.length === 0) continue;
+      const nameMap = xmltvChannelNames.get(src) || new Map();
+
+      // Build unique channel id → programs map from this source
+      const byId = new Map<string, EpgProgram[]>();
+      for (const p of all) {
+        if (!byId.has(p.channelId)) byId.set(p.channelId, []);
+        byId.get(p.channelId)!.push(p);
+      }
+      const uniqueIds = [...byId.keys()];
+
+      const result: Record<string, EpgProgram[]> = {};
+      let matched = 0;
+
+      for (const ch of channels) {
+        const n = norm(ch.name);
+        const id = ch.tvgId ? norm(ch.tvgId) : "";
+        const words = nameWords(ch.name);
+
+        // Try each match strategy in order
+        const found =
+          // 1. Exact tvg-id on xmltv channel id
+          (id && uniqueIds.find((xId) => norm(xId) === id)) ||
+          // 2. Exact name
+          uniqueIds.find((xId) => norm(xId) === n || norm(nameMap.get(xId) || "") === n) ||
+          // 3. Tvg-id partial
+          (id.length >= 3 && uniqueIds.find((xId) => { const nx = norm(xId); return nx.includes(id) || id.includes(nx); })) ||
+          // 4. Name partial
+          uniqueIds.find((xId) => { const nx = norm(xId); const dn = norm(nameMap.get(xId) || ""); return nx.includes(n) || n.includes(nx) || dn.includes(n) || n.includes(dn); }) ||
+          // 5. Word match
+          (words.length > 0 && uniqueIds.find((xId) => {
+            const s = (xId + " " + (nameMap.get(xId) || "")).toLowerCase();
+            return words.some((w) => s.includes(w));
+          }));
+
+        if (found) {
+          const programs = (byId.get(found) || [])
+            .filter((p) => (p.endTimestamp ?? 0) > now - winMs && (p.startTimestamp ?? 0) < now + winMs)
+            .sort((a, b) => (a.startTimestamp ?? 0) - (b.startTimestamp ?? 0));
+          if (programs.length > 0) { result[ch.id] = programs; matched++; }
+        }
+      }
+
+      // If we matched at least 20% of channels, use this source
+      if (matched >= Math.max(1, channels.length * 0.2)) return result;
+    } catch {
+      // try next source
+    }
+  }
+  return {};
+}
+
 /**
  * Build a Catchup/Timeshift URL for watching archived programs.
  * Xtream Codes API format: /streaming/timeshift.php?username=X&password=Y&stream=ID&start=YYYY-MM-DD:HH-MM&duration=MINUTES
@@ -421,8 +720,13 @@ export async function fetchVodInfo(
   vodId: number
 ): Promise<MovieInfo> {
   const cacheKey = buildCacheKey(creds, "vod_info", String(vodId));
-  const cached = getCached<MovieInfo>(cacheKey);
-  if (cached) return cached;
+  const memCached = getCached<MovieInfo>(cacheKey);
+  if (memCached) return memCached;
+
+  if (typeof window !== "undefined") {
+    const idb = await idbGetVodInfo<MovieInfo>(vodId);
+    if (idb) { setCache(cacheKey, idb, CACHE_TTL_VOD_INFO); return idb; }
+  }
 
   const url = buildApiUrl(creds, "get_vod_info") + `&vod_id=${vodId}`;
   const data = await fetchJson<{
@@ -463,6 +767,7 @@ export async function fetchVodInfo(
   };
 
   setCache(cacheKey, result, CACHE_TTL_VOD_INFO);
+  if (typeof window !== "undefined") idbPutVodInfo(vodId, result);
   return result;
 }
 
@@ -476,8 +781,13 @@ export async function fetchFullSeriesInfo(
   seriesId: number
 ): Promise<SeriesInfo> {
   const cacheKey = buildCacheKey(creds, "series_info", String(seriesId));
-  const cached = getCached<SeriesInfo>(cacheKey);
-  if (cached) return cached;
+  const memCached = getCached<SeriesInfo>(cacheKey);
+  if (memCached) return memCached;
+
+  if (typeof window !== "undefined") {
+    const idb = await idbGetSeriesInfo<SeriesInfo>(seriesId);
+    if (idb) { setCache(cacheKey, idb, CACHE_TTL_SERIES_INFO); return idb; }
+  }
 
   const url = buildApiUrl(creds, "get_series_info") + `&series_id=${seriesId}`;
   const data = await fetchJson<{
@@ -545,6 +855,7 @@ export async function fetchFullSeriesInfo(
   };
 
   setCache(cacheKey, result, CACHE_TTL_SERIES_INFO);
+  if (typeof window !== "undefined") idbPutSeriesInfo(seriesId, result);
   return result;
 }
 
@@ -574,6 +885,13 @@ function upgradeHttps(url: string): string {
   return url;
 }
 
+// Normalize VOD container extension — MKV/AVI/FLV are not reliably decoded
+// by browsers. Xtream servers always serve the same stream as .mp4 on request.
+function normalizeVodExt(ext: string): string {
+  const l = (ext || "mp4").toLowerCase().replace(/^\./, "");
+  return (l === "mkv" || l === "avi" || l === "flv" || l === "wmv" || l === "mov") ? "mp4" : (l || "mp4");
+}
+
 export function buildStreamUrl(
   creds: XtreamCredentials,
   streamId: number,
@@ -588,9 +906,9 @@ export function buildStreamUrl(
     return `${base}/live/${u}/${p}/${streamId}.${ext}`;
   }
   if (type === "movie") {
-    return `${base}/movie/${u}/${p}/${streamId}.${extension || "mp4"}`;
+    return `${base}/movie/${u}/${p}/${streamId}.${normalizeVodExt(extension || "mp4")}`;
   }
-  return `${base}/series/${u}/${p}/${streamId}.${extension || "mp4"}`;
+  return `${base}/series/${u}/${p}/${streamId}.${normalizeVodExt(extension || "mp4")}`;
 }
 
 export function buildVodUrl(

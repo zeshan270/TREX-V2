@@ -1,7 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useRef, useCallback, useState, useEffect } from "react";
 import clsx from "clsx";
 import {
@@ -16,29 +15,151 @@ import {
   HiXMark,
   HiTableCells,
   HiSparkles,
+  HiFire,
+  HiCommandLine,
 } from "react-icons/hi2";
-import { useAuthStore, useSettingsStore } from "@/lib/store";
+import { useAuthStore, useSettingsStore, useRecentStore } from "@/lib/store";
 import { useT } from "@/lib/i18n";
+import { nav } from "@/lib/navigate";
 
 const navItems = [
-  { href: "/", labelKey: "nav.home" as const, icon: HiHome, isFavorite: false },
-  { href: "/favorites", labelKey: "nav.favorites" as const, icon: HiStar, isFavorite: true },
-  { href: "/live", labelKey: "nav.liveTV" as const, icon: HiTv, isFavorite: false },
-  { href: "/genres", labelKey: "nav.genres" as const, icon: HiSparkles, isFavorite: false },
-  { href: "/epg", labelKey: "nav.tvGuide" as const, icon: HiTableCells, isFavorite: false },
-  { href: "/movies", labelKey: "nav.movies" as const, icon: HiFilm, isFavorite: false },
-  { href: "/series", labelKey: "nav.series" as const, icon: HiRectangleStack, isFavorite: false },
-  { href: "/search", labelKey: "nav.search" as const, icon: HiMagnifyingGlass, isFavorite: false },
-  { href: "/settings", labelKey: "nav.settings" as const, icon: HiCog6Tooth, isFavorite: false },
+  { href: "/", labelKey: "nav.home" as const, icon: HiHome, accent: "from-purple-500 to-blue-500", dot: "bg-purple-400" },
+  { href: "/live", labelKey: "nav.liveTV" as const, icon: HiTv, accent: "from-red-500 to-pink-500", dot: "bg-red-400" },
+  { href: "/movies", labelKey: "nav.movies" as const, icon: HiFilm, accent: "from-blue-500 to-cyan-500", dot: "bg-blue-400" },
+  { href: "/series", labelKey: "nav.series" as const, icon: HiRectangleStack, accent: "from-orange-500 to-amber-500", dot: "bg-orange-400" },
+  { href: "/favorites", labelKey: "nav.favorites" as const, icon: HiStar, accent: "from-yellow-500 to-amber-500", dot: "bg-yellow-400" },
+  { href: "/trending", labelKey: "nav.trending" as const, icon: HiFire, accent: "from-orange-600 to-red-600", dot: "bg-orange-500" },
+  { href: "/genres", labelKey: "nav.genres" as const, icon: HiSparkles, accent: "from-purple-500 to-pink-500", dot: "bg-purple-400" },
+  { href: "/epg", labelKey: "nav.tvGuide" as const, icon: HiTableCells, accent: "from-green-500 to-teal-500", dot: "bg-green-400" },
+  { href: "/search", labelKey: "nav.search" as const, icon: HiMagnifyingGlass, accent: "from-pink-500 to-rose-500", dot: "bg-pink-400" },
+  { href: "/settings", labelKey: "nav.settings" as const, icon: HiCog6Tooth, accent: "from-gray-500 to-slate-500", dot: "bg-gray-400" },
 ];
 
-export default function PlayerLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+// ===== Spotlight Search =====
+function SpotlightSearch({ onClose }: { onClose: () => void }) {
+  const { items: recentItems } = useRecentStore();
+  const [query, setQuery] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  const filteredRecent = recentItems
+    .filter((item) => !query || item.name.toLowerCase().includes(query.toLowerCase()))
+    .slice(0, 6);
+
+  const quickLinks = [
+    { label: "Live TV", href: "/live", icon: HiTv, color: "text-red-400" },
+    { label: "Filme", href: "/movies", icon: HiFilm, color: "text-blue-400" },
+    { label: "Serien", href: "/series", icon: HiRectangleStack, color: "text-orange-400" },
+    { label: "Suche", href: `/search${query ? `?q=${encodeURIComponent(query)}` : ""}`, icon: HiMagnifyingGlass, color: "text-pink-400" },
+  ];
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (query.trim()) {
+      nav(`/search?q=${encodeURIComponent(query.trim())}`);
+      onClose();
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[200] flex items-start justify-center pt-[10vh] px-4" onClick={onClose}>
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-md" />
+
+      {/* Panel */}
+      <div
+        className="relative w-full max-w-2xl rounded-2xl border border-white/10 bg-[#0d0d14]/95 shadow-2xl shadow-purple-900/30 overflow-hidden animate-in fade-in zoom-in-95 duration-200"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Search bar */}
+        <form onSubmit={handleSubmit} className="flex items-center gap-3 px-5 py-4 border-b border-white/10">
+          <HiMagnifyingGlass className="h-5 w-5 text-gray-400 flex-shrink-0" />
+          <input
+            ref={inputRef}
+            type="text"
+            placeholder="Suchen nach Filmen, Serien, Live TV..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="flex-1 bg-transparent text-white placeholder-gray-500 text-lg focus:outline-none"
+          />
+          {query && (
+            <button type="button" onClick={() => setQuery("")} className="text-gray-500 hover:text-white transition-colors">
+              <HiXMark className="h-5 w-5" />
+            </button>
+          )}
+          <kbd className="hidden sm:flex items-center gap-1 px-2 py-1 rounded-md bg-white/5 border border-white/10 text-gray-500 text-xs">
+            ESC
+          </kbd>
+        </form>
+
+        {/* Quick links */}
+        {!query && (
+          <div className="px-5 py-3 border-b border-white/5">
+            <p className="text-[10px] uppercase tracking-widest text-gray-500 mb-3">Schnellzugriff</p>
+            <div className="grid grid-cols-4 gap-2">
+              {quickLinks.map((link) => (
+                <button
+                  key={link.href}
+                  onClick={() => { nav(link.href); onClose(); }}
+                  className="flex flex-col items-center gap-2 p-3 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
+                >
+                  <link.icon className={clsx("h-5 w-5", link.color)} />
+                  <span className="text-xs text-gray-300">{link.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Recent / Results */}
+        {filteredRecent.length > 0 && (
+          <div className="px-5 py-3 max-h-80 overflow-y-auto">
+            <p className="text-[10px] uppercase tracking-widest text-gray-500 mb-3">
+              {query ? "Ergebnisse" : "Zuletzt angesehen"}
+            </p>
+            <ul className="space-y-1">
+              {filteredRecent.map((item) => (
+                <li key={item.id}>
+                  <button
+                    onClick={() => { nav(`/player/${item.id}?type=${item.streamType}`); onClose(); }}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/8 transition-colors text-left group"
+                  >
+                    <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-purple-500/30 to-blue-500/30 flex items-center justify-center flex-shrink-0">
+                      {item.streamType === "live" ? (
+                        <HiTv className="h-4 w-4 text-red-400" />
+                      ) : item.streamType === "movie" ? (
+                        <HiFilm className="h-4 w-4 text-blue-400" />
+                      ) : (
+                        <HiRectangleStack className="h-4 w-4 text-orange-400" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-white font-medium truncate group-hover:text-purple-300 transition-colors">{item.name}</p>
+                      <p className="text-xs text-gray-500 capitalize">{item.streamType === "live" ? "Live TV" : item.streamType === "movie" ? "Film" : "Serie"}</p>
+                    </div>
+                    <HiMagnifyingGlass className="h-4 w-4 text-gray-600 group-hover:text-gray-400 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-all" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Footer hint */}
+        <div className="px-5 py-2.5 border-t border-white/5 flex items-center gap-4 text-xs text-gray-600">
+          <span className="flex items-center gap-1.5"><kbd className="px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-gray-500">↵</kbd> Öffnen</span>
+          <span className="flex items-center gap-1.5"><kbd className="px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-gray-500">ESC</kbd> Schließen</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function PlayerLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const router = useRouter();
   const macAddress = useAuthStore((s) => s.macAddress);
   const credentials = useAuthStore((s) => s.credentials);
   const playlistName = useAuthStore((s) => s.playlistName);
@@ -47,31 +168,35 @@ export default function PlayerLayout({
   const navRef = useRef<HTMLUListElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [exitToast, setExitToast] = useState(false);
+  const [spotlight, setSpotlight] = useState(false);
 
   const isLarge = fontSize === "large" || fontSize === "extra-large" || remoteControlMode;
 
   const serverHost =
     credentials && "serverUrl" in credentials
-      ? new URL(credentials.serverUrl).hostname
+      ? (() => { try { return new URL(credentials.serverUrl).hostname; } catch { return credentials.serverUrl; } })()
       : credentials && "url" in credentials
         ? "M3U Playlist"
         : "";
 
   // Close menu on route change
-  useEffect(() => {
-    setMenuOpen(false);
-  }, [pathname]);
+  useEffect(() => { setMenuOpen(false); }, [pathname]);
 
-  // Close menu on Escape
+  // Keyboard shortcuts
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setMenuOpen(false);
+      if (e.key === "Escape") { setMenuOpen(false); setSpotlight(false); }
+      // CMD+K or CTRL+K → spotlight
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setSpotlight((v) => !v);
+      }
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   }, []);
 
-  // ===== GLOBAL BACK NAVIGATION GUARD (TiviMate-style) =====
+  // Back navigation guard (TiviMate-style)
   const lastBackRef = useRef(0);
   const pathnameRef = useRef(pathname);
   const exitToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -80,25 +205,17 @@ export default function PlayerLayout({
 
   useEffect(() => {
     window.history.pushState({ trex: "guard" }, "");
-
     const handlePopState = (e: PopStateEvent) => {
       const p = pathnameRef.current;
       if (p.startsWith("/player/")) return;
-
-      // Orphaned player guard — player navigated away but left a guard entry.
-      // Re-push our own guard so the user stays on the current page.
       const trex = (e.state as { trex?: string } | null)?.trex;
       if (trex === "player" || trex === "player-guard") {
         window.history.pushState({ trex: "guard" }, "");
         return;
       }
-
       if (p === "/") {
         const now = Date.now();
-        if (now - lastBackRef.current < 2000) {
-          window.history.back();
-          return;
-        }
+        if (now - lastBackRef.current < 2000) { window.history.back(); return; }
         lastBackRef.current = now;
         setExitToast(true);
         if (exitToastTimerRef.current) clearTimeout(exitToastTimerRef.current);
@@ -106,20 +223,15 @@ export default function PlayerLayout({
         window.history.pushState({ trex: "guard" }, "");
         return;
       }
-
       const parentMap: Record<string, string> = {
         "/live": "/", "/epg": "/", "/movies": "/", "/series": "/",
         "/search": "/", "/favorites": "/", "/settings": "/", "/genres": "/",
+        "/trending": "/",
       };
-      // Handle browse paths -> genres
-      if (p.startsWith("/browse/")) {
-        router.push("/genres");
-      } else {
-        router.push(parentMap[p] || "/");
-      }
+      if (p.startsWith("/browse/")) { nav("/genres"); }
+      else { nav(parentMap[p] || "/"); }
       window.history.pushState({ trex: "guard" }, "");
     };
-
     window.addEventListener("popstate", handlePopState);
     return () => {
       window.removeEventListener("popstate", handlePopState);
@@ -128,122 +240,190 @@ export default function PlayerLayout({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleNavKeyDown = useCallback(
-    (e: React.KeyboardEvent, index: number) => {
-      if (!navRef.current) return;
-      const items = navRef.current.querySelectorAll("a");
-      let nextIndex = index;
-      if (e.key === "ArrowDown") { e.preventDefault(); nextIndex = Math.min(index + 1, items.length - 1); }
-      else if (e.key === "ArrowUp") { e.preventDefault(); nextIndex = Math.max(index - 1, 0); }
-      if (nextIndex !== index) (items[nextIndex] as HTMLElement)?.focus();
-    },
-    []
-  );
+  const handleNavKeyDown = useCallback((e: React.KeyboardEvent, index: number) => {
+    if (!navRef.current) return;
+    const items = navRef.current.querySelectorAll("a");
+    let nextIndex = index;
+    if (e.key === "ArrowDown") { e.preventDefault(); nextIndex = Math.min(index + 1, items.length - 1); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); nextIndex = Math.max(index - 1, 0); }
+    if (nextIndex !== index) (items[nextIndex] as HTMLElement)?.focus();
+  }, []);
 
-  const NavLink = ({ item, index }: { item: typeof navItems[0]; index: number }) => {
-    const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
+  const NavLink = ({ item, index, compact = false }: { item: typeof navItems[0]; index: number; compact?: boolean }) => {
+    const normPat = pathname.replace(/\/+$/, "") || "/";
+    const normHref = item.href.replace(/\/+$/, "") || "/";
+    const isActive = normPat === normHref || (normHref !== "/" && normPat.startsWith(normHref));
+
+    const href = item.href.endsWith("/") ? item.href : item.href + "/";
     return (
-      <Link
-        href={item.href}
+      <a
+        href={href}
         tabIndex={0}
         data-focusable
-        onKeyDown={(e) => handleNavKeyDown(e, index)}
-        onClick={() => setMenuOpen(false)}
         className={clsx(
-          "flex items-center gap-3 rounded-xl px-3 transition-all duration-200 glass-nav",
-          "focus-visible:ring-4 focus-visible:ring-yellow-400 focus-visible:outline-none",
-          item.isFavorite
-            ? clsx(
-                isLarge ? "py-4 text-xl" : "py-3.5 text-lg",
-                "font-bold",
-                isActive
-                  ? "bg-gradient-to-r from-yellow-500/20 to-amber-500/10 text-yellow-400 shadow-sm shadow-yellow-500/10 border border-yellow-500/30 active"
-                  : "text-yellow-400/80 hover:bg-yellow-500/10 hover:text-yellow-300 border border-transparent"
-              )
-            : clsx(
-                isLarge ? "py-4 text-lg" : "py-3 text-base",
-                "font-medium",
-                isActive
-                  ? "bg-amber-500/10 text-amber-400 shadow-sm active"
-                  : "text-gray-400 hover:bg-white/5 hover:text-white"
-              )
+          "group relative flex items-center gap-3 rounded-xl transition-all duration-200 w-full text-left",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500",
+          compact ? "px-3 py-3 justify-center" : (isLarge ? "px-4 py-4" : "px-4 py-3"),
+          isActive ? "text-white" : "text-gray-400 hover:text-white"
         )}
       >
-        <item.icon className={clsx("flex-shrink-0", item.isFavorite ? "h-6 w-6" : "h-5 w-5", item.isFavorite ? (isActive ? "text-yellow-400" : "text-yellow-400/80") : isActive ? "text-amber-400" : "")} />
-        <span>{t(item.labelKey)}</span>
-        {isActive && !item.isFavorite && <div className="ml-auto h-2 w-2 rounded-full bg-amber-400" />}
-        {item.isFavorite && isActive && <div className="ml-auto h-2 w-2 rounded-full bg-yellow-400" />}
-      </Link>
+        {isActive && (
+          <div className={clsx("absolute inset-0 rounded-xl opacity-20 bg-gradient-to-r", item.accent)} />
+        )}
+        {!isActive && (
+          <div className="absolute inset-0 rounded-xl bg-white/0 group-hover:bg-white/5 transition-colors" />
+        )}
+        {isActive && !compact && (
+          <div className={clsx("absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 rounded-r-full bg-gradient-to-b", item.accent)} />
+        )}
+        <item.icon className={clsx(
+          "relative flex-shrink-0 transition-transform group-hover:scale-110",
+          compact ? "h-5 w-5" : (isLarge ? "h-6 w-6" : "h-5 w-5"),
+          isActive ? `text-transparent bg-gradient-to-br ${item.accent} bg-clip-text` : ""
+        )} style={isActive ? { filter: "drop-shadow(0 0 6px rgba(168,85,247,0.5))" } : {}} />
+        {!compact && (
+          <span className={clsx("relative font-medium truncate flex-1", isLarge ? "text-base" : "text-sm")}>
+            {t(item.labelKey)}
+          </span>
+        )}
+        {isActive && !compact && (
+          <div className={clsx("relative ml-auto h-1.5 w-1.5 rounded-full", item.dot)} />
+        )}
+        {compact && (
+          <div className="pointer-events-none absolute left-full ml-3 px-3 py-1.5 rounded-lg bg-[#1a1a28] border border-white/10 text-white text-xs font-medium whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50 shadow-xl">
+            {t(item.labelKey)}
+          </div>
+        )}
+      </a>
     );
   };
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#0d0d14]">
-      {/* Desktop Sidebar */}
-      <aside className="hidden lg:flex w-20 lg:w-72 flex-col border-r border-[#2a2a38] bg-[#0d0d14]/95 backdrop-blur-sm">
+      {/* Desktop Sidebar — full width on xl, icon-only on lg */}
+      <aside className={clsx(
+        "hidden lg:flex flex-col border-r border-white/5",
+        "bg-[#080810]/90 backdrop-blur-xl",
+        "xl:w-64 lg:w-20"
+      )}>
         {/* Logo */}
-        <div className="flex h-16 items-center justify-center lg:justify-start lg:px-6 border-b border-[#2a2a38]">
-          <Link href="/" className="flex items-center gap-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-amber-500 to-orange-600">
-              <span className="text-sm font-bold text-white">T</span>
+        <div className="flex h-16 items-center justify-center xl:justify-start xl:px-5 border-b border-white/5">
+          <a href="/" className="flex items-center gap-3 group">
+            <div className={clsx(
+              "flex h-9 w-9 items-center justify-center rounded-xl",
+              "bg-gradient-to-br from-purple-600 via-violet-600 to-blue-600",
+              "shadow-lg shadow-purple-900/50 group-hover:shadow-purple-700/60 transition-shadow"
+            )}>
+              <span className="text-sm font-black text-white tracking-tight">TX</span>
             </div>
-            <span className="hidden xl:block text-lg font-bold gradient-text">IPTV TREX</span>
-          </Link>
+            <div className="hidden xl:block">
+              <p className="text-base font-black text-white leading-none">IPTV TREX</p>
+              <p className="text-[10px] text-purple-400 font-medium tracking-widest uppercase leading-none mt-0.5">Premium</p>
+            </div>
+          </a>
+        </div>
+
+        {/* Spotlight Search Button */}
+        <div className="xl:px-3 lg:px-2 pt-3 pb-2">
+          <button
+            onClick={() => setSpotlight(true)}
+            className={clsx(
+              "w-full flex items-center gap-2.5 rounded-xl border border-white/8 bg-white/4 transition-all",
+              "hover:bg-white/8 hover:border-white/15 text-gray-400 hover:text-white",
+              "xl:px-3 xl:py-2.5 lg:p-3 lg:justify-center xl:justify-start"
+            )}
+          >
+            <HiMagnifyingGlass className="h-4 w-4 flex-shrink-0" />
+            <span className="hidden xl:block text-sm flex-1 text-left">Suchen...</span>
+            <div className="hidden xl:flex items-center gap-0.5">
+              <kbd className="text-[10px] px-1.5 py-0.5 rounded bg-white/8 border border-white/10 text-gray-500">⌘K</kbd>
+            </div>
+          </button>
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 overflow-y-auto py-4 px-2 lg:px-3">
-          <ul ref={navRef} className="space-y-1">
+        <nav className="flex-1 overflow-y-auto xl:py-3 xl:px-3 lg:py-3 lg:px-2 scrollbar-none">
+          <ul ref={navRef} className="space-y-0.5">
             {navItems.map((item, index) => (
               <li key={item.href}>
-                <NavLink item={item} index={index} />
+                <NavLink item={item} index={index} compact={false} />
               </li>
             ))}
           </ul>
         </nav>
 
         {/* Footer */}
-        <div className="border-t border-[#2a2a38] p-3 lg:p-4 space-y-2">
+        <div className="border-t border-white/5 xl:p-4 lg:p-2 space-y-2">
           {(playlistName || serverHost) && (
-            <div className="rounded-lg bg-amber-500/10 p-2 lg:p-3">
-              <p className="hidden xl:block text-[10px] uppercase tracking-wider text-amber-400 mb-1">{t("settings.activePlaylist")}</p>
-              <p className="text-xs text-amber-300 font-medium text-center lg:text-left truncate">{playlistName || serverHost}</p>
+            <div className={clsx(
+              "rounded-xl border border-purple-500/20 bg-purple-500/8 xl:p-3 lg:p-2",
+              "xl:block hidden"
+            )}>
+              <p className="text-[9px] uppercase tracking-widest text-purple-400/70 mb-1">{t("settings.activePlaylist")}</p>
+              <p className="text-xs text-purple-200 font-semibold truncate">{playlistName || serverHost}</p>
             </div>
           )}
-          <div className="rounded-lg bg-[#181820] p-2 lg:p-3">
-            <p className="hidden xl:block text-[10px] uppercase tracking-wider text-gray-500 mb-1">{t("settings.macAddress")}</p>
-            <p className="text-[10px] lg:text-xs text-gray-400 font-mono text-center lg:text-left truncate">{macAddress || "00:00:00:00:00:00"}</p>
+          <div className={clsx(
+            "rounded-xl border border-white/5 bg-white/3 xl:p-3 lg:p-2",
+            "xl:block hidden"
+          )}>
+            <p className="text-[9px] uppercase tracking-widest text-gray-600 mb-1">{t("settings.macAddress")}</p>
+            <p className="text-[10px] text-gray-500 font-mono truncate">{macAddress || "00:00:00:00:00:00"}</p>
+          </div>
+          {/* Compact footer for icon-only mode */}
+          <div className="xl:hidden flex flex-col items-center gap-2 py-1">
+            <div className="h-8 w-8 rounded-lg bg-purple-500/20 border border-purple-500/30 flex items-center justify-center">
+              <span className="text-[10px] font-bold text-purple-400">P</span>
+            </div>
           </div>
         </div>
       </aside>
 
-      {/* Mobile hamburger menu overlay */}
+      {/* Mobile hamburger overlay */}
       {menuOpen && (
         <div className="lg:hidden fixed inset-0 z-50">
-          {/* Backdrop */}
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setMenuOpen(false)} />
-
-          {/* Slide-in panel */}
-          <div className="absolute left-0 top-0 bottom-0 w-72 glass-panel menu-slide-in border-r border-[#2a2a38] flex flex-col" style={{ borderRadius: 0 }}>
+          <div
+            className="absolute inset-0 bg-black/70 backdrop-blur-md"
+            onClick={() => setMenuOpen(false)}
+          />
+          <div
+            className="absolute left-0 top-0 bottom-0 w-72 flex flex-col border-r border-white/8 animate-in slide-in-from-left duration-250"
+            style={{ background: "linear-gradient(160deg, #0d0d1a 0%, #0a0a14 100%)" }}
+          >
             {/* Menu header */}
-            <div className="flex items-center justify-between p-4 border-b border-[#2a2a38]">
-              <div className="flex items-center gap-2">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-amber-500 to-orange-600">
-                  <span className="text-sm font-bold text-white">T</span>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-white/8">
+              <a href="/" className="flex items-center gap-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-purple-600 to-blue-600 shadow-lg shadow-purple-900/50">
+                  <span className="text-sm font-black text-white">TX</span>
                 </div>
-                <span className="text-lg font-bold gradient-text">IPTV TREX</span>
-              </div>
+                <div>
+                  <p className="text-base font-black text-white leading-none">IPTV TREX</p>
+                  <p className="text-[10px] text-purple-400 tracking-widest uppercase leading-none mt-0.5">Premium</p>
+                </div>
+              </a>
               <button
                 onClick={() => setMenuOpen(false)}
-                className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/5 text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+                className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/5 text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
               >
-                <HiXMark className="h-6 w-6" />
+                <HiXMark className="h-5 w-5" />
               </button>
             </div>
 
-            {/* Menu nav items */}
-            <nav className="flex-1 overflow-y-auto py-4 px-3">
-              <ul className="space-y-1">
+            {/* Search button in mobile menu */}
+            <div className="px-4 pt-3 pb-2">
+              <button
+                onClick={() => { setMenuOpen(false); setSpotlight(true); }}
+                className="w-full flex items-center gap-2.5 rounded-xl border border-white/8 bg-white/4 px-4 py-2.5 text-gray-400"
+              >
+                <HiMagnifyingGlass className="h-4 w-4" />
+                <span className="text-sm">Suchen...</span>
+                <span className="ml-auto text-xs text-gray-600">⌘K</span>
+              </button>
+            </div>
+
+            {/* Menu nav */}
+            <nav className="flex-1 overflow-y-auto py-2 px-3">
+              <ul className="space-y-0.5">
                 {navItems.map((item, index) => (
                   <li key={item.href}>
                     <NavLink item={item} index={index} />
@@ -252,55 +432,62 @@ export default function PlayerLayout({
               </ul>
             </nav>
 
-            {/* Menu footer */}
-            <div className="border-t border-[#2a2a38] p-4 space-y-2">
+            {/* Mobile footer */}
+            <div className="border-t border-white/5 p-4 space-y-2">
               {(playlistName || serverHost) && (
-                <div className="glass-card rounded-lg p-3">
-                  <p className="text-[10px] uppercase tracking-wider text-amber-400 mb-1">{t("settings.activePlaylist")}</p>
-                  <p className="text-xs text-amber-300 font-medium truncate">{playlistName || serverHost}</p>
+                <div className="rounded-xl border border-purple-500/20 bg-purple-500/8 p-3">
+                  <p className="text-[9px] uppercase tracking-widest text-purple-400/70 mb-1">{t("settings.activePlaylist")}</p>
+                  <p className="text-xs text-purple-200 font-semibold truncate">{playlistName || serverHost}</p>
                 </div>
               )}
-              <div className="glass-card rounded-lg p-3">
-                <p className="text-[10px] uppercase tracking-wider text-gray-500 mb-1">{t("settings.macAddress")}</p>
-                <p className="text-[10px] text-gray-400 font-mono truncate">{macAddress || "00:00:00:00:00:00"}</p>
+              <div className="rounded-xl border border-white/5 bg-white/3 p-3">
+                <p className="text-[9px] uppercase tracking-widest text-gray-600 mb-1">{t("settings.macAddress")}</p>
+                <p className="text-[10px] text-gray-500 font-mono truncate">{macAddress || "00:00:00:00:00:00"}</p>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Mobile top bar with hamburger */}
-      <div className="lg:hidden fixed top-0 left-0 right-0 z-40 flex items-center justify-between px-4 h-14 border-b border-[#2a2a38] bg-[#0d0d14]/95 backdrop-blur-sm">
+      {/* Mobile top bar */}
+      <div className={clsx(
+        "lg:hidden fixed top-0 left-0 right-0 z-40 flex items-center justify-between px-4 h-14",
+        "border-b border-white/5 bg-[#080810]/90 backdrop-blur-xl"
+      )}>
         <button
           onClick={() => setMenuOpen(true)}
-          className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/5 text-gray-300 hover:text-white hover:bg-white/10 transition-colors focus-visible:ring-4 focus-visible:ring-blue-400"
+          className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/5 text-gray-300 hover:text-white hover:bg-white/10 transition-colors"
           aria-label="Menü öffnen"
         >
-          <HiBars3 className="h-6 w-6" />
+          <HiBars3 className="h-5 w-5" />
         </button>
 
-        <Link href="/" className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-amber-500 to-orange-600">
-            <span className="text-xs font-bold text-white">T</span>
+        <a href="/" className="flex items-center gap-2">
+          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-purple-600 to-blue-600">
+            <span className="text-xs font-black text-white">TX</span>
           </div>
-          <span className="text-base font-bold gradient-text">IPTV TREX</span>
-        </Link>
+          <span className="text-sm font-black text-white">IPTV TREX</span>
+        </a>
 
-        <Link
-          href="/settings"
-          className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/5 text-gray-300 hover:text-white hover:bg-white/10 transition-colors focus-visible:ring-4 focus-visible:ring-blue-400"
+        <button
+          onClick={() => setSpotlight(true)}
+          className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/5 text-gray-300 hover:text-white hover:bg-white/10 transition-colors"
+          aria-label="Suche"
         >
-          <HiCog6Tooth className="h-5 w-5" />
-        </Link>
+          <HiMagnifyingGlass className="h-5 w-5" />
+        </button>
       </div>
 
       {/* Main content */}
-      <main className="flex-1 overflow-y-auto pt-14 lg:pt-0">{children}</main>
+      <main className="flex-1 overflow-y-auto pt-14 lg:pt-0 min-w-0">{children}</main>
+
+      {/* Spotlight Search Modal */}
+      {spotlight && <SpotlightSearch onClose={() => setSpotlight(false)} />}
 
       {/* Double-back exit toast */}
       {exitToast && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] animate-in fade-in slide-in-from-bottom-4 duration-200">
-          <div className="rounded-xl bg-[#181820] border border-[#2a2a38] px-6 py-3 shadow-2xl">
+          <div className="rounded-2xl border border-white/10 bg-[#0d0d1a]/95 backdrop-blur-xl px-6 py-3 shadow-2xl">
             <p className="text-sm text-gray-300 whitespace-nowrap">{t("common.pressAgainToExit")}</p>
           </div>
         </div>

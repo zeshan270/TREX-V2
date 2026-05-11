@@ -5,12 +5,10 @@ const config: CapacitorConfig = {
   appName: "IPTV TREX",
   webDir: "out",
   server: {
-    // Production: load from Vercel deployment (keeps API routes working)
-    url: "https://iptv-trex.vercel.app",
-    // For development: connect to local dev server instead
-    // url: "http://192.168.1.x:3000",
-    // cleartext: true,
+    url: "https://trex-2-0.vercel.app",
     androidScheme: "https",
+    hostname: "app",
+    iosScheme: "ionic",
   },
   plugins: {
     SplashScreen: {
@@ -23,18 +21,13 @@ const config: CapacitorConfig = {
       style: "DARK",
       backgroundColor: "#0d0d14",
     },
-    Keyboard: {
-      resize: "body",
-    },
-    CapacitorHttp: {
-      enabled: true,
-    },
+    Keyboard: { resize: "body" },
+    CapacitorHttp: { enabled: true },
   },
   android: {
     allowMixedContent: true,
     backgroundColor: "#0d0d14",
-    // Full-screen immersive mode for TV
-    webContentsDebuggingEnabled: false,
+    webContentsDebuggingEnabled: true,
   },
 };
 

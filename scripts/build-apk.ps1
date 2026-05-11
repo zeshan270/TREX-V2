@@ -1,0 +1,127 @@
+# ═══════════════════════════════════════════════════════════════
+#  IPTV TREX — Vollautomatischer APK Build
+#  Schritt 1: Next.js statischer Export (out/)
+#  Schritt 2: 404.html SPA-Fallback erzeugen
+#  Schritt 3: Capacitor sync (Dateien in android/ kopieren)
+#  Schritt 4: Gradle APK bauen (debug oder release)
+#  Ausgabe:   android/app/build/outputs/apk/debug/app-debug.apk
+# ═══════════════════════════════════════════════════════════════
+
+param(
+  [string]$Variant = "debug"    # debug oder release
+)
+
+$ErrorActionPreference = "Stop"
+$Root = Split-Path $PSScriptRoot -Parent
+
+Set-Location $Root
+
+# ── Java & Android SDK auto-detect ────────────────────────────
+if (-not $env:JAVA_HOME) {
+  $candidateJava = "C:\Program Files\Android\Android Studio\jbr"
+  if (Test-Path $candidateJava) {
+    $env:JAVA_HOME = $candidateJava
+    $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
+    Write-Host "   → JAVA_HOME: $env:JAVA_HOME" -ForegroundColor DarkGray
+  }
+}
+if (-not $env:ANDROID_HOME) {
+  $candidateSdk = "$env:LOCALAPPDATA\Android\Sdk"
+  if (Test-Path $candidateSdk) {
+    $env:ANDROID_HOME = $candidateSdk
+    Write-Host "   → ANDROID_HOME: $env:ANDROID_HOME" -ForegroundColor DarkGray
+  }
+}
+# Write local.properties for Gradle (forward slashes, no BOM)
+if ($env:ANDROID_HOME) {
+  $localProps = "$Root\android\local.properties"
+  $sdkForward = $env:ANDROID_HOME.Replace("\", "/")
+  [System.IO.File]::WriteAllText($localProps, "sdk.dir=$sdkForward`n", [System.Text.Encoding]::UTF8)
+}
+Write-Host ""
+Write-Host "╔══════════════════════════════════════╗"
+Write-Host "║   IPTV TREX  —  APK Build Pipeline   ║"
+Write-Host "╚══════════════════════════════════════╝"
+Write-Host ""
+
+# ── 1. Next.js statischer Export ─────────────────────────────
+Write-Host "[1/4] Next.js Static Export..."
+$env:NEXT_PUBLIC_APK_BUILD = "1"
+
+# Prisma generieren (brauchen wir auch für apk build wegen imports)
+npx prisma generate 2>&1 | Out-Null
+
+# API-Routen temporär ausblenden (nicht kompatibel mit output:'export')
+$apiDir    = "$Root\src\app\api"
+$apiDirTmp = "$Root\src\app\_api_tmp"
+$apiMoved  = $false
+if (Test-Path $apiDir) {
+  Rename-Item $apiDir $apiDirTmp -Force
+  $apiMoved = $true
+  Write-Host "   → API-Routen temporär versteckt" -ForegroundColor DarkGray
+}
+
+try {
+  # Statischen Export (NEXT_PUBLIC_APK_BUILD=1 aktiviert output:'export' in next.config.ts)
+  npx next build
+  if ($LASTEXITCODE -ne 0) { throw "Next.js Build fehlgeschlagen!" }
+} finally {
+  # API-Routen immer wiederherstellen
+  if ($apiMoved -and (Test-Path $apiDirTmp)) {
+    Rename-Item $apiDirTmp $apiDir -Force
+    Write-Host "   → API-Routen wiederhergestellt" -ForegroundColor DarkGray
+  }
+}
+
+Write-Host "   ✓ Static Export in out/" -ForegroundColor Green
+
+# ── 2. SPA-Fallback 404.html erz────────────────────────────
+Write-Host "[2/4] SPA Fallback erzeugen..."
+if (Test-Path "out/index.html") {
+  Copy-Item "out/index.html" "out/404.html" -Force
+  Write-Host "   ✓ out/404.html erstellt" -ForegroundColor Green
+} else {
+  Write-Error "out/index.html nicht gefunden!"
+  exit 1
+}
+
+# ── 3. Capacitor Sync ─────────────────────────────────────
+Write-Host "[3/4] Capacitor Sync → Android..."
+npx cap sync android
+if ($LASTEXITCODE -ne 0) { Write-Error "Capacitor Sync fehlgeschlagen!"; exit 1 }
+Write-Host "   ✓ Android-Projekt aktualisiert" -ForegroundColor Green
+
+# ── 4. Gradle APK Build ───────────────────────────────────
+Write-Host "[4/4] Gradle APK Build ($Variant)..."
+Set-Location "$Root\android"
+
+if ($Variant -eq "release") {
+  & .\gradlew.bat assembleRelease 2>&1
+} else {
+  & .\gradlew.bat assembleDebug 2>&1
+}
+if ($LASTEXITCODE -ne 0) { Set-Location $Root; Write-Error "Gradle Build fehlgeschlagen!"; exit 1 }
+
+Set-Location $Root
+
+# ── Ausgabe-APK ──────────────────────────────────────────
+$apkPath = if ($Variant -eq "release") {
+  "android\app\build\outputs\apk\release\app-release.apk"
+} else {
+  "android\app\build\outputs\apk\debug\app-debug.apk"
+}
+
+if (Test-Path $apkPath) {
+  $size = (Get-Item $apkPath).Length / 1MB
+  Write-Host ""
+  Write-Host "═══════════════════════════════════════" -ForegroundColor Cyan
+  Write-Host " APK fertig! ($([math]::Round($size,1)) MB)" -ForegroundColor Green
+  Write-Host " $apkPath" -ForegroundColor Yellow
+  Write-Host "═══════════════════════════════════════" -ForegroundColor Cyan
+  Write-Host ""
+  Write-Host " Auf Gerät installieren:"
+  Write-Host "   adb install $apkPath"
+  Write-Host ""
+} else {
+  Write-Error "APK nicht gefunden unter: $apkPath"
+}

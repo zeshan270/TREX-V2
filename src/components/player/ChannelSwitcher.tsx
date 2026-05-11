@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import Image from "next/image";
+/* eslint-disable @next/next/no-img-element */
 import clsx from "clsx";
 import { HiXMark, HiMagnifyingGlass } from "react-icons/hi2";
 import type { Channel } from "@/types";
@@ -88,12 +88,11 @@ export default function ChannelSwitcher({
               </span>
               <div className="relative h-9 w-9 flex-shrink-0 overflow-hidden rounded bg-[#22222e]">
                 {channel.logo ? (
-                  <Image
+                  <img
                     src={channel.logo}
                     alt={channel.name}
-                    fill
-                    className="object-contain p-0.5"
-                    unoptimized
+                    className="absolute inset-0 h-full w-full object-contain p-0.5"
+                    loading="lazy"
                   />
                 ) : (
                   <div className="flex h-full w-full items-center justify-center text-xs text-gray-600 font-semibold">

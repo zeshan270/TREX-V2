@@ -1,8 +1,8 @@
-"use client";
+﻿"use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { useRouter } from "next/navigation";
-import Image from "next/image";
+import { nav } from "@/lib/navigate";
+/* eslint-disable @next/next/no-img-element */
 import clsx from "clsx";
 import {
   HiSignal,
@@ -66,7 +66,6 @@ interface CountryGroup {
 // ==================== Component ====================
 
 export default function LiveTVPage() {
-  const router = useRouter();
   const t = useT();
   const credentials = useAuthStore((s) => s.credentials);
   const setPlaylist = usePlayerStore((s) => s.setPlaylist);
@@ -340,7 +339,7 @@ export default function LiveTVPage() {
     setPlaylist(filteredChannels);
     // Pass current URL as referrer for proper back navigation
     const referrer = window.location.pathname + window.location.search;
-    router.push(`/player/${channel.id}?type=live&url=${encodeURIComponent(channel.url)}&name=${encodeURIComponent(channel.name)}&referrer=${encodeURIComponent(referrer)}`);
+    nav(`/player/${channel.id}?type=live&url=${encodeURIComponent(channel.url)}&name=${encodeURIComponent(channel.name)}&referrer=${encodeURIComponent(referrer)}`);
   };
 
   const handleCountrySelect = (code: string | null) => {
@@ -427,7 +426,7 @@ export default function LiveTVPage() {
         <div className="space-y-2">
           <div
             ref={countryGridRef}
-            className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar"
+            className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar touch-pan-x overscroll-x-contain" style={{ WebkitOverflowScrolling: "touch" }}
           >
             {/* All Channels button */}
             <button
@@ -483,7 +482,7 @@ export default function LiveTVPage() {
 
           {/* Sub-category chips for selected country */}
           {selectedCountry && countryCategories.length > 1 && (
-            <div className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar">
+            <div className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar touch-pan-x overscroll-x-contain" style={{ WebkitOverflowScrolling: "touch" }}>
               <button
                 onClick={() => handleCategorySelect(null)}
                 tabIndex={0}
@@ -589,7 +588,7 @@ export default function LiveTVPage() {
                       }}
                       tabIndex={-1}
                       className="absolute top-2 right-2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-black/40 backdrop-blur-sm transition-all hover:bg-black/60 hover:scale-110"
-                      aria-label={fav ? "Aus Favoriten entfernen" : "Zu Favoriten hinzufügen"}
+                      aria-label={fav ? "Aus Favoriten entfernen" : "Zu Favoriten hinzufÃ¼gen"}
                     >
                       {fav ? (
                         <HiHeart className="h-4 w-4 text-red-500" />
@@ -605,20 +604,19 @@ export default function LiveTVPage() {
                       </div>
                     )}
 
-                    <div className="relative aspect-video w-full mb-2 rounded-lg overflow-hidden bg-[#22222e]">
+                    <div className="relative aspect-video w-full mb-2 rounded-lg overflow-hidden bg-[#22222e] flex items-center justify-center">
                       {channel.logo ? (
-                        <Image
+                        <img
                           src={channel.logo}
-                          alt={channel.name}
-                          fill
-                          className="object-contain p-2"
-                          unoptimized
+                          alt=""
+                          className="h-full w-full object-contain p-2"
+                          loading="lazy"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; (e.target as HTMLImageElement).nextElementSibling?.classList.remove("hidden"); }}
                         />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center">
-                          <HiSignal className="h-6 w-6 text-gray-600" />
-                        </div>
-                      )}
+                      ) : null}
+                      <div className={clsx("flex items-center justify-center absolute inset-0", channel.logo && "hidden")}>
+                        <HiSignal className="h-6 w-6 text-gray-600" />
+                      </div>
                     </div>
                     <p className="text-sm font-semibold text-gray-200 truncate group-hover:text-white leading-tight">
                       {channel.name}
@@ -633,3 +631,4 @@ export default function LiveTVPage() {
     </div>
   );
 }
+

@@ -4,6 +4,7 @@ import { useRef, useState, useEffect, useCallback } from "react";
 import Hls from "hls.js";
 import clsx from "clsx";
 import { useT } from "@/lib/i18n";
+import { buildProxyUrl, isNative } from "@/lib/capacitor-http";
 import {
   HiPlay,
   HiPause,
@@ -60,16 +61,11 @@ interface VideoPlayerProps {
 
 /**
  * Build a proxied URL to bypass CORS/mixed-content for IPTV streams.
+ * In native APK (Capacitor): returns URL directly — OkHttp handles everything.
+ * In browser: routes through /api/proxy.
  */
 function proxyUrl(url: string): string {
-  const trimmed = url.trim();
-  if (typeof window === "undefined") return trimmed;
-  if (trimmed.startsWith("/")) return trimmed;
-  try {
-    const parsed = new URL(trimmed);
-    if (parsed.origin === window.location.origin) return trimmed;
-  } catch {}
-  return `/api/proxy?url=${encodeURIComponent(trimmed)}`;
+  return buildProxyUrl(url.trim());
 }
 
 export default function VideoPlayer({
@@ -196,6 +192,25 @@ export default function VideoPlayer({
     }
   }, []);
 
+  // Screen Wake Lock — keep screen on during playback
+  useEffect(() => {
+    let wakeLock: WakeLockSentinel | null = null;
+    const request = async () => {
+      try {
+        if ("wakeLock" in navigator) {
+          wakeLock = await navigator.wakeLock.request("screen");
+        }
+      } catch {}
+    };
+    if (isPlaying) request();
+    const onVisChange = () => { if (document.visibilityState === "visible" && isPlaying) request(); };
+    document.addEventListener("visibilitychange", onVisChange);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisChange);
+      wakeLock?.release().catch(() => {});
+    };
+  }, [isPlaying]);
+
   // Initialize player
   useEffect(() => {
     const video = videoRef.current;
@@ -244,8 +259,10 @@ export default function VideoPlayer({
 
     // Detect HTTP→HTTPS mixed content: browser will ALWAYS block these,
     // so skip the direct attempt entirely and go straight to proxy.
+    // In native Capacitor (APK): mixed content is allowed by Android, skip proxy.
     function srcRequiresProxy(): boolean {
       if (typeof window === "undefined") return false;
+      if (isNative()) return false; // Android OkHttp allows HTTP
       if (window.location.protocol !== "https:") return false;
       try { return new URL(src).protocol === "http:"; } catch { return false; }
     }
@@ -461,10 +478,45 @@ export default function VideoPlayer({
 
       const needsProxy = srcRequiresProxy() || serverNeedsProxy() === true;
 
+      // ── TIER 1: Native video for non-HLS VOD (mp4/mkv/avi/ts direct files) ──
+      // HLS.js can only parse .m3u8 manifests — never send plain video files through it.
+      if (isVodContent && !isHLS) {
+        setLoadingStatus("Lade Stream...");
+
+        // Chrome/Firefox don't decode MKV/AVI natively — try .mp4 version first.
+        // Xtream servers always serve the same content as .mp4 on request.
+        const unsupportedExt = /\.(mkv|avi|flv|wmv|mov)(\?|$)/i.test(src);
+        const mp4Url = unsupportedExt ? src.replace(/\.(mkv|avi|flv|wmv|mov)/i, ".mp4") : null;
+
+        // Build ordered fallback chain: mp4 → original → proxy mp4 → proxy original
+        const chain: string[] = [];
+        if (mp4Url && !needsProxy) chain.push(mp4Url);
+        if (!needsProxy) chain.push(src);
+        if (mp4Url) chain.push(proxyUrl(mp4Url));
+        chain.push(proxyUrl(src));
+
+        let idx = 0;
+        const tryNext = () => {
+          if (!alive) return;
+          if (idx >= chain.length) {
+            setError("Stream konnte nicht geladen werden.");
+            setIsBuffering(false);
+            return;
+          }
+          const url = chain[idx++];
+          video.onerror = null;
+          video.src = url;
+          video.onerror = () => { video.onerror = null; tryNext(); };
+          if (autoPlay) safePlay(video);
+        };
+        tryNext();
+        return;
+      }
+
       if (isHLS || isVodContent) {
         const nativeHLS = video.canPlayType("application/vnd.apple.mpegurl") !== "";
 
-        // TIER 1: Native HLS (Safari/iOS) — direct URL, zero proxy overhead
+        // TIER 2: Native HLS (Safari/iOS) — direct URL, zero proxy overhead
         if (nativeHLS && !Hls.isSupported()) {
           setLoadingStatus("Lade Stream...");
           if (needsProxy) {
@@ -481,12 +533,12 @@ export default function VideoPlayer({
           return;
         }
 
-        // TIER 2/3: HLS.js — skip direct attempt when proxy is required
+        // TIER 3/4: HLS.js — only for actual .m3u8 streams
         if (Hls.isSupported()) {
           if (needsProxy) {
-            startHlsProxy(video); // HTTP→HTTPS or cached: go straight to proxy
+            startHlsProxy(video);
           } else {
-            startHlsDirect(video); // Try direct first (fastest path)
+            startHlsDirect(video);
           }
           return;
         }
@@ -496,7 +548,7 @@ export default function VideoPlayer({
         video.src = proxyUrl(src);
         if (autoPlay) safePlay(video);
       } else {
-        // Non-HLS content — try direct, proxy on error
+        // Non-HLS live content — try direct, proxy on error
         setLoadingStatus("Lade Stream...");
         if (needsProxy) {
           video.src = proxyUrl(src);

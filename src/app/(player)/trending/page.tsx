@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { nav } from "@/lib/navigate";
 import clsx from "clsx";
 import { HiFire, HiSparkles, HiArrowTrendingUp } from "react-icons/hi2";
 import { useRecentStore, useFavoritesStore, usePlayerStore } from "@/lib/store";
@@ -9,7 +9,6 @@ import { SkeletonGrid } from "@/components/ui/Skeleton";
 import ContentCard from "@/components/ui/ContentCard";
 
 export default function TrendingPage() {
-  const router = useRouter();
   const { items: recentItems } = useRecentStore();
   const { favorites } = useFavoritesStore();
   const { positions } = usePlayerStore();
@@ -72,7 +71,7 @@ export default function TrendingPage() {
                       id={item.id}
                       title={item.name}
                       image={item.logo}
-                      onClick={() => router.push(`/player/${item.id}?type=${item.streamType}`)}
+                      onClick={() => nav(`/player/${item.id}?type=${item.streamType}`)}
                       isFavorite={favorites.some((f) => f.id === item.id)}
                       onFavoriteToggle={() => {}}
                     />
@@ -108,7 +107,7 @@ export default function TrendingPage() {
                       id={item.id}
                       title={item.name}
                       image={item.logo}
-                      onClick={() => router.push(`/player/${item.id}?type=${item.streamType}`)}
+                      onClick={() => nav(`/player/${item.id}?type=${item.streamType}`)}
                       isFavorite={favorites.some((f) => f.id === item.id)}
                       onFavoriteToggle={() => {}}
                     />
@@ -136,7 +135,7 @@ export default function TrendingPage() {
                     id={item.id}
                     title={item.name}
                     image={item.logo}
-                    onClick={() => router.push(`/player/${item.id}?type=${item.streamType}`)}
+                    onClick={() => nav(`/player/${item.id}?type=${item.streamType}`)}
                     isFavorite={true}
                     onFavoriteToggle={() => {}}
                   />

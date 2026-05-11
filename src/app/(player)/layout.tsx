@@ -1,47 +1,60 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter, usePathname } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useAuthStore } from "@/lib/store";
 import PlayerLayout from "@/components/layout/PlayerLayout";
 
-export default function PlayerGroupLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  const router = useRouter();
-  const pathname = usePathname();
+const Spinner = () => (
+  <div className="min-h-screen bg-[#0d0d14] flex items-center justify-center">
+    <div className="w-10 h-10 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
+  </div>
+);
+
+function normPath(p: string) {
+  return p.replace(/\/+$/, "") || "/";
+}
+
+export default function PlayerGroupLayout({ children }: { children: React.ReactNode }) {
+  const rawPath = usePathname();
+  const pathname = normPath(rawPath);
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
-  const [hydrated, setHydrated] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [ready, setReady] = useState(false);
 
-  // Wait for Zustand store to hydrate from localStorage
-  useEffect(() => {
-    // useAuthStore.persist is available because the store uses the persist middleware
-    const unsub = useAuthStore.persist.onFinishHydration(() => {
-      setHydrated(true);
-    });
-    // If already hydrated (e.g. on client-side navigation)
-    if (useAuthStore.persist.hasHydrated()) {
-      setHydrated(true);
-    }
-    return unsub;
-  }, []);
+  // Wait for client mount first to avoid hydration mismatch (React #418)
+  useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
-    if (hydrated && !isLoggedIn && pathname !== "/login") {
-      router.replace("/login");
+    if (!mounted) return;
+    const done = () => setReady(true);
+    const t = setTimeout(done, 800);
+    try {
+      if (useAuthStore.persist.hasHydrated()) {
+        clearTimeout(t); done(); return;
+      }
+      const unsub = useAuthStore.persist.onFinishHydration(() => {
+        clearTimeout(t); done();
+      });
+      return () => { clearTimeout(t); unsub(); };
+    } catch {
+      // localStorage not available yet — timeout fires
     }
-  }, [hydrated, isLoggedIn, pathname, router]);
+    return () => clearTimeout(t);
+  }, [mounted]);
 
-  // Login page renders without the player layout
+  // Login-Seite: immer direkt rendern (kein PlayerLayout)
   if (pathname === "/login") {
     return <>{children}</>;
   }
 
-  // Show nothing while waiting for hydration or redirecting
-  if (!hydrated || !isLoggedIn) {
-    return null;
+  // SSR / not yet mounted → same spinner as server render
+  if (!mounted || !ready) return <Spinner />;
+
+  // Nicht eingeloggt → hard redirect zur Login-Seite
+  if (!isLoggedIn) {
+    window.location.replace("/login/");
+    return <Spinner />;
   }
 
   return <PlayerLayout>{children}</PlayerLayout>;

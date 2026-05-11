@@ -245,6 +245,7 @@ interface SettingsState {
   remoteControlMode: boolean;
   showChannelNumbers: boolean;
   brightness: number;
+  startInFavorites: boolean;
   setPin: (pin: string) => void;
   toggleLockedCategory: (categoryId: string) => void;
   setBufferSize: (size: number) => void;
@@ -254,6 +255,7 @@ interface SettingsState {
   setRemoteControlMode: (on: boolean) => void;
   setShowChannelNumbers: (on: boolean) => void;
   setBrightness: (v: number) => void;
+  setStartInFavorites: (on: boolean) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -268,6 +270,7 @@ export const useSettingsStore = create<SettingsState>()(
       remoteControlMode: false,
       showChannelNumbers: true,
       brightness: 100,
+      startInFavorites: false,
       setPin: (pin) => set({ parentalPin: pin }),
       toggleLockedCategory: (categoryId) => {
         const locked = get().lockedCategories;
@@ -284,6 +287,7 @@ export const useSettingsStore = create<SettingsState>()(
       setRemoteControlMode: (on) => set({ remoteControlMode: on }),
       setShowChannelNumbers: (on) => set({ showChannelNumbers: on }),
       setBrightness: (v) => set({ brightness: v }),
+      setStartInFavorites: (on) => set({ startInFavorites: on }),
     }),
     { name: "iptv-trex-settings" }
   )

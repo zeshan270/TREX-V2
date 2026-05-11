@@ -11,7 +11,11 @@
     "cap:init": "npx cap add android",
     "cap:sync": "npx cap sync android",
     "cap:open": "npx cap open android",
-    "cap:build": "npm run build && npx cap sync android"
+    "cap:build": "npm run build && npx cap sync android",
+    "apk:build": "powershell -ExecutionPolicy Bypass -File scripts/build-apk.ps1",
+    "apk:release": "powershell -ExecutionPolicy Bypass -File scripts/build-apk.ps1 -Variant release",
+    "apk:install": "adb install android\\app\\build\\outputs\\apk\\debug\\app-debug.apk",
+    "apk:static": "cross-env NEXT_PUBLIC_APK_BUILD=1 next build"
   },
   "dependencies": {
     "@capacitor/android": "^8.3.1",

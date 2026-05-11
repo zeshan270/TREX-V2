@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { nav } from "@/lib/navigate";
 import clsx from "clsx";
 import { HiFilm, HiXMark, HiPlay, HiStar, HiGlobeAlt } from "react-icons/hi2";
 import { useAuthStore, useFavoritesStore } from "@/lib/store";
@@ -12,6 +12,7 @@ import SearchBar from "@/components/ui/SearchBar";
 import ContentCard from "@/components/ui/ContentCard";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import ErrorDisplay from "@/components/ui/ErrorDisplay";
+import { prefetchImages } from "@/lib/prefetch";
 
 const COUNTRY_MAP: Record<string, { flag: string; name: string }> = {
   AF: { flag: "\uD83C\uDDE6\uD83C\uDDEB", name: "Afghanistan" },
@@ -91,7 +92,6 @@ function extractCountry(categoryName: string): { countryCode: string; subCategor
 }
 
 export default function MoviesPage() {
-  const router = useRouter();
   const t = useT();
   const credentials = useAuthStore((s) => s.credentials);
   const { toggle, isFavorite } = useFavoritesStore();
@@ -137,6 +137,7 @@ export default function MoviesPage() {
       .then((m) => {
         setMovies(m);
         setLoadingMovies(false);
+        prefetchImages(m.map((x) => x.streamIcon));
       })
       .catch((err) => {
         setError(err.message);
@@ -179,7 +180,7 @@ export default function MoviesPage() {
     if (!creds) return;
     const url = buildVodUrl(creds, movie.streamId, movie.containerExtension);
     const referrer = window.location.pathname + window.location.search;
-    router.push(`/player/${movie.streamId}?type=movie&url=${encodeURIComponent(url)}&name=${encodeURIComponent(movie.name)}&referrer=${encodeURIComponent(referrer)}`);
+    nav(`/player/${movie.streamId}?type=movie&url=${encodeURIComponent(url)}&name=${encodeURIComponent(movie.name)}&referrer=${encodeURIComponent(referrer)}`);
   };
 
   const handleCountrySelect = (code: string | null) => {
@@ -231,7 +232,7 @@ export default function MoviesPage() {
         />
 
         {/* Country filter bar */}
-        <div className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar">
+        <div className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar touch-pan-x overscroll-x-contain" style={{ WebkitOverflowScrolling: "touch" }}>
           <button
             onClick={() => handleCountrySelect(null)}
             tabIndex={0}
@@ -267,7 +268,7 @@ export default function MoviesPage() {
 
         {/* Category chips */}
         {selectedCountry && countryCategories.length > 1 && (
-          <div className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar">
+          <div className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar touch-pan-x overscroll-x-contain" style={{ WebkitOverflowScrolling: "touch" }}>
             <button
               onClick={() => setSelectedCategory(null)}
               tabIndex={0}
@@ -302,7 +303,7 @@ export default function MoviesPage() {
 
         {/* Show all categories if no country selected */}
         {!selectedCountry && (
-          <div className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar">
+          <div className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar touch-pan-x overscroll-x-contain" style={{ WebkitOverflowScrolling: "touch" }}>
             <button
               onClick={() => setSelectedCategory(null)}
               tabIndex={0}
@@ -373,7 +374,7 @@ export default function MoviesPage() {
                     categoryId: movie.categoryId,
                   })
                 }
-                onClick={() => router.push(`/movies/${movie.streamId}`)}
+                onClick={() => { nav(`/movies/${movie.streamId}`); }}
               />
             ))}
           </div>

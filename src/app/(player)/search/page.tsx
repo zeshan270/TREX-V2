@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { nav } from "@/lib/navigate";
 import clsx from "clsx";
 import {
   HiMagnifyingGlass,
@@ -17,7 +17,9 @@ import {
   fetchLiveStreams,
   fetchVodStreams,
   fetchSeries,
+  buildStreamUrl,
 } from "@/lib/api-client";
+import { usePlayerStore } from "@/lib/store";
 import type { Channel, Movie, Series, XtreamCredentials } from "@/types";
 import ContentCard from "@/components/ui/ContentCard";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
@@ -42,11 +44,11 @@ interface SearchResult {
 }
 
 export default function SearchPage() {
-  const router = useRouter();
   const t = useT();
   const credentials = useAuthStore((s) => s.credentials);
   const { toggle, isFavorite } = useFavoritesStore();
   const { add: addRecent } = useRecentStore();
+  const { setChannel, setPlaylist } = usePlayerStore();
 
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -220,6 +222,18 @@ export default function SearchPage() {
       streamType: result.type === "all" ? "live" : result.type,
       logo: result.image,
     });
+
+    if (result.type === "live") {
+      const ch = result.object as Channel;
+      const url = ch.url || (creds ? buildStreamUrl(creds, Number(ch.id), "live") : "");
+      setChannel(ch);
+      setPlaylist(results.filter((r) => r.type === "live").map((r) => r.object as Channel));
+      nav(`/player/${ch.id}?type=live&url=${encodeURIComponent(url)}&name=${encodeURIComponent(ch.name)}`);
+    } else if (result.type === "movie") {
+      nav(`/movies/${result.id}`);
+    } else if (result.type === "series") {
+      nav(`/series/${result.id}`);
+    }
   };
 
   return (
@@ -422,12 +436,7 @@ export default function SearchPage() {
                         logo: result.image,
                       })
                     }
-                    onClick={() => {
-                      handleResultClick(result);
-                      router.push(
-                        `/${result.type === "all" ? "movies" : result.type}/${result.id}`
-                      );
-                    }}
+                    onClick={() => handleResultClick(result)}
                   />
                 ))}
               </div>
@@ -439,12 +448,7 @@ export default function SearchPage() {
                 {displayedResults.map((result) => (
                   <button
                     key={`${result.type}-${result.id}`}
-                    onClick={() => {
-                      handleResultClick(result);
-                      router.push(
-                        `/${result.type === "all" ? "movies" : result.type}/${result.id}`
-                      );
-                    }}
+                    onClick={() => handleResultClick(result)}
                     className="w-full flex gap-4 p-4 rounded-xl bg-[#181820] hover:bg-[#22222e] border border-[#2a2a38] hover:border-purple-500/30 transition-all text-left group"
                   >
                     {result.image && (

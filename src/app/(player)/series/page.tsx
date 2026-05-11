@@ -1,8 +1,7 @@
-"use client";
+﻿"use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
-import Image from "next/image";
+import { nav } from "@/lib/navigate";
 import clsx from "clsx";
 import {
   HiRectangleStack,
@@ -25,7 +24,6 @@ import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import ErrorDisplay from "@/components/ui/ErrorDisplay";
 
 export default function SeriesPage() {
-  const router = useRouter();
   const t = useT();
   const credentials = useAuthStore((s) => s.credentials);
   const { toggle, isFavorite } = useFavoritesStore();
@@ -115,7 +113,7 @@ export default function SeriesPage() {
     const url = buildSeriesUrl(creds, Number(episodeId), ext);
     const name = episodeTitle ? `${selectedSeries?.name} - ${episodeTitle}` : selectedSeries?.name || episodeId;
     const referrer = window.location.pathname + window.location.search;
-    router.push(`/player/${episodeId}?type=series&url=${encodeURIComponent(url)}&name=${encodeURIComponent(name)}&referrer=${encodeURIComponent(referrer)}`);
+    nav(`/player/${episodeId}?type=series&url=${encodeURIComponent(url)}&name=${encodeURIComponent(name)}&referrer=${encodeURIComponent(referrer)}`);
   };
 
   if (loading) {
@@ -210,7 +208,7 @@ export default function SeriesPage() {
                     categoryId: series.categoryId,
                   })
                 }
-                onClick={() => router.push(`/series/${series.seriesId}`)}
+                onClick={() => { nav(`/series/${series.seriesId}`); }}
               />
             ))}
           </div>
@@ -335,3 +333,4 @@ export default function SeriesPage() {
     </div>
   );
 }
+
