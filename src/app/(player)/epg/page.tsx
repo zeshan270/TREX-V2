@@ -15,6 +15,15 @@ import { useT } from "@/lib/i18n";
 import { fetchLiveCategories, fetchLiveStreams, fetchFullEpg, fetchFreeEpgBulk, buildStreamUrl, buildCatchupUrl } from "@/lib/api-client";
 import type { Category, Channel, EpgProgram, XtreamCredentials } from "@/types";
 
+function proxyImg(url?: string): string {
+  if (!url) return "";
+  if (url.startsWith("/api/proxy")) return url;
+  if (url.startsWith("http://") || url.startsWith("https://")) {
+    return `/api/proxy?url=${encodeURIComponent(url)}`;
+  }
+  return url;
+}
+
 // ==================== Constants ====================
 const PX_PER_MS = 4 / 60000; // 4px per minute
 const CHANNEL_COL = 160;
@@ -159,7 +168,7 @@ function NowNextView({ channels, epgData, onWatch, onSelect }: {
               {/* Channel */}
               <div className="flex-shrink-0 w-[140px] flex items-center gap-2 px-3 py-3 cursor-pointer group" onClick={() => onWatch(ch)}>
                 <div className="hidden sm:flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-[#1a1a26] overflow-hidden">
-                  {ch.logo ? <img src={ch.logo} alt="" className="h-8 w-8 object-contain" loading="lazy" /> : <HiTv className="h-4 w-4 text-gray-600" />}
+                  {ch.logo ? <img src={proxyImg(ch.logo)} alt="" className="h-8 w-8 object-contain" loading="lazy" /> : <HiTv className="h-4 w-4 text-gray-600" />}
                 </div>
                 <span className="text-xs text-gray-300 truncate group-hover:text-amber-400 transition-colors font-medium">{ch.name}</span>
               </div>
@@ -329,7 +338,10 @@ export default function EpgPage() {
       return;
     }
     if (!selectedCategory) {
-      if (categories.length > 0) setSelectedCategory(categories[0].categoryId);
+      if (categories.length > 0) {
+        const nonAdult = categories.find((c) => !/adult|xxx|18\+/i.test(c.categoryName));
+        setSelectedCategory((nonAdult || categories[0]).categoryId);
+      }
       return;
     }
     setLoadingChannels(true);
@@ -579,7 +591,7 @@ export default function EpgPage() {
                       {/* Channel label */}
                       <div className="sticky left-0 z-20 flex-shrink-0 bg-[#0d0d14] border-b border-r border-[#2a2a38] flex items-center gap-2 px-2 cursor-pointer hover:bg-[#181820] transition-colors group" style={{ width: CHANNEL_COL }} onClick={() => goChannel(ch)} title={ch.name}>
                         <div className="hidden sm:flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-[#1a1a26] overflow-hidden">
-                          {ch.logo ? <img src={ch.logo} alt="" className="h-8 w-8 object-contain" loading="lazy" /> : <HiTv className="h-4 w-4 text-gray-600" />}
+                          {ch.logo ? <img src={proxyImg(ch.logo)} alt="" className="h-8 w-8 object-contain" loading="lazy" /> : <HiTv className="h-4 w-4 text-gray-600" />}
                         </div>
                         <span className="text-xs sm:text-sm text-gray-300 truncate group-hover:text-amber-400 transition-colors font-medium">{ch.name}</span>
                       </div>
