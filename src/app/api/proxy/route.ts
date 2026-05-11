@@ -50,7 +50,19 @@ export async function GET(request: NextRequest) {
     clearTimeout(timeout);
 
     if (!response.ok && response.status !== 206) {
-      // Provide meaningful error info for IPTV-specific status codes
+      // IPTV servers often return odd status codes when hit via HTTPS
+      // (they respond but with an error). Retry with HTTP before giving up.
+      const parsed = new URL(url);
+      if (parsed.protocol === "https:") {
+        parsed.protocol = "http:";
+        const httpResponse = await fetch(parsed.toString(), { signal: controller.signal, headers: reqHeaders });
+        if (httpResponse.ok || httpResponse.status === 206) {
+          response = httpResponse;
+        }
+      }
+    }
+
+    if (!response.ok && response.status !== 206) {
       let errorDetail = `Upstream error: ${response.status}`;
       if (response.status === 456) {
         errorDetail = "STREAM_BLOCKED_456";
