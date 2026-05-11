@@ -21,6 +21,15 @@ import {
 } from "./idb";
 import { nativeFetch, isNative } from "./capacitor-http";
 
+// ==================== Image URL Fix ====================
+function fixImageUrl(url: string): string {
+  if (!url) return url;
+  if (url.startsWith("http://")) {
+    return `/api/proxy?url=${encodeURIComponent(url)}`;
+  }
+  return url;
+}
+
 // ==================== Response Cache ====================
 
 interface CacheEntry<T> {
@@ -197,7 +206,7 @@ export async function fetchLiveStreams(
   const result = data.map((s) => ({
     id: String(s.stream_id ?? ""),
     name: String(s.name ?? ""),
-    logo: String(s.stream_icon ?? ""),
+    logo: fixImageUrl(String(s.stream_icon ?? "")),
     group: String(s.category_id ?? ""),
     url: buildStreamUrl(creds, Number(s.stream_id), "live", "m3u8"),
     tvgId: String(s.epg_channel_id ?? ""),
@@ -258,7 +267,7 @@ export async function fetchVodStreams(
   const result = data.map((s) => ({
     streamId: Number(s.stream_id ?? 0),
     name: String(s.name ?? ""),
-    streamIcon: String(s.stream_icon ?? ""),
+    streamIcon: fixImageUrl(String(s.stream_icon ?? "")),
     rating: String(s.rating ?? "0"),
     categoryId: String(s.category_id ?? ""),
     containerExtension: String(s.container_extension ?? "mp4"),
@@ -317,7 +326,7 @@ export async function fetchSeries(
   const result = data.map((s) => ({
     seriesId: Number(s.series_id ?? 0),
     name: String(s.name ?? ""),
-    cover: String(s.cover ?? ""),
+    cover: fixImageUrl(String(s.cover ?? "")),
     plot: String(s.plot ?? ""),
     cast: String(s.cast ?? ""),
     director: String(s.director ?? ""),
@@ -747,9 +756,9 @@ export async function fetchVodInfo(
     streamId: Number(movieData.stream_id ?? vodId),
     name: String(info.name ?? movieData.name ?? ""),
     originalName: info.o_name ? String(info.o_name) : undefined,
-    cover: String(info.movie_image ?? info.cover ?? ""),
-    coverBig: info.cover_big ? String(info.cover_big) : undefined,
-    backdropPath,
+    cover: fixImageUrl(String(info.movie_image ?? info.cover ?? "")),
+    coverBig: info.cover_big ? fixImageUrl(String(info.cover_big)) : undefined,
+    backdropPath: backdropPath.map(fixImageUrl),
     rating: String(info.rating ?? "0"),
     plot: String(info.plot ?? info.description ?? ""),
     cast: String(info.cast ?? ""),
@@ -808,8 +817,8 @@ export async function fetchFullSeriesInfo(
     seasonNumber: Number(s.season_number ?? 0),
     name: String(s.name ?? `Staffel ${s.season_number}`),
     episodeCount: Number(s.episode_count ?? 0),
-    cover: s.cover ? String(s.cover) : undefined,
-    coverBig: s.cover_big ? String(s.cover_big) : undefined,
+    cover: s.cover ? fixImageUrl(String(s.cover)) : undefined,
+    coverBig: s.cover_big ? fixImageUrl(String(s.cover_big)) : undefined,
     overview: s.overview ? String(s.overview) : undefined,
     airDate: s.air_date ? String(s.air_date) : undefined,
   }));
@@ -826,7 +835,7 @@ export async function fetchFullSeriesInfo(
           containerExtension: String(e.container_extension ?? "mp4"),
           season: Number(e.season ?? seasonNum),
           info: {
-            movieImage: epInfo.movie_image ? String(epInfo.movie_image) : undefined,
+            movieImage: epInfo.movie_image ? fixImageUrl(String(epInfo.movie_image)) : undefined,
             plot: epInfo.plot ? String(epInfo.plot) : undefined,
             duration: epInfo.duration ? String(epInfo.duration) : undefined,
             durationSecs: epInfo.duration_secs ? Number(epInfo.duration_secs) : undefined,
@@ -840,7 +849,7 @@ export async function fetchFullSeriesInfo(
 
   const result: SeriesInfo = {
     name: String(info.name ?? ""),
-    cover: String(info.cover ?? ""),
+    cover: fixImageUrl(String(info.cover ?? "")),
     plot: String(info.plot ?? ""),
     cast: String(info.cast ?? ""),
     director: String(info.director ?? ""),

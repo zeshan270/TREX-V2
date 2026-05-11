@@ -135,8 +135,11 @@ export async function GET(request: NextRequest) {
     // Cache segments at Vercel CDN edge — they're immutable once created.
     // This eliminates serverless cold-start latency for re-requested segments (VOD seeking).
     const isSegment = url.includes(".ts") || url.includes(".aac") || url.includes(".mp4");
+    const isImage = /\.(png|jpg|jpeg|gif|webp|svg|ico)(\?|$)/i.test(url);
     if (isSegment) {
       headers.set("Cache-Control", "public, s-maxage=300, stale-while-revalidate=60");
+    } else if (isImage) {
+      headers.set("Cache-Control", "public, s-maxage=86400, stale-while-revalidate=3600");
     }
 
     return new NextResponse(response.body, {
