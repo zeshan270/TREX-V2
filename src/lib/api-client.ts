@@ -24,7 +24,7 @@ import { nativeFetch, isNative } from "./capacitor-http";
 // ==================== Image URL Fix ====================
 function fixImageUrl(url: string): string {
   if (!url) return url;
-  if (url.startsWith("http://")) {
+  if (url.startsWith("http://") || url.startsWith("https://")) {
     return `/api/proxy?url=${encodeURIComponent(url)}`;
   }
   return url;
@@ -882,15 +882,9 @@ function safeAtob(str: string): string {
 }
 
 /**
- * Auto-upgrade HTTP URLs to HTTPS when the page is on HTTPS.
- * This enables direct browser-to-server streaming (bypassing the proxy),
- * which uses the user's real IP instead of the datacenter IP.
- * Most Xtream servers support HTTPS on port 443 alongside HTTP.
+ * No-op: keep URLs as HTTP. The proxy handles mixed content.
  */
 function upgradeHttps(url: string): string {
-  if (typeof window !== "undefined" && window.location.protocol === "https:") {
-    return url.replace(/^http:\/\//i, "https://");
-  }
   return url;
 }
 
