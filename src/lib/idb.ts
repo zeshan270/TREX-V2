@@ -7,7 +7,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 const DB_NAME    = "iptv-trex-db";
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 const STORE_META    = "meta";     // categories, general lists
 const STORE_STREAMS = "streams";  // stream lists per category
