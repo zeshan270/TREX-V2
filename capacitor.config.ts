@@ -5,6 +5,7 @@ const config: CapacitorConfig = {
   appName: "IPTV TREX",
   webDir: "out",
   server: {
+    url: "https://trex-2-0.vercel.app",
     androidScheme: "https",
     hostname: "app",
     iosScheme: "ionic",
@@ -21,7 +22,7 @@ const config: CapacitorConfig = {
       backgroundColor: "#0d0d14",
     },
     Keyboard: { resize: "body" },
-    CapacitorHttp: { enabled: true },
+    CapacitorHttp: { enabled: false },
   },
   android: {
     allowMixedContent: true,

@@ -7,6 +7,14 @@
 //  • Streams:     Network-only (real-time video)
 // ═══════════════════════════════════════════════════════════════
 
+// ── Capacitor guard: unregister self inside native app ──────
+if (typeof self !== 'undefined' && self.location && self.location.search.includes('capacitor=true')) {
+  self.addEventListener('install', () => self.skipWaiting());
+  self.addEventListener('activate', () => self.registration.unregister());
+  // Stop processing — no caching in native app
+  throw new Error('SW disabled in Capacitor');
+}
+
 const V = 'trex-v5';
 const SHELL  = `${V}-shell`;
 const IMAGES = `${V}-images`;

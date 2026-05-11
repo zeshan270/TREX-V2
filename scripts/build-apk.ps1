@@ -87,8 +87,25 @@ try {
 
 Write-Host "   ✓ Static Export in out/" -ForegroundColor Green
 
-# ── 2. SPA-Fallback 404.html erz────────────────────────────
-Write-Host "[2/4] SPA Fallback erzeugen..."
+# ── 2. Fix Hydration + SPA-Fallback ─────────────────────────
+Write-Host "[2/5] Fix Hydration für Capacitor..."
+
+# Replace pre-rendered DOM in body with empty div to avoid React #418 hydration errors.
+# Keep all <script> tags intact — React will render client-side.
+Get-ChildItem "out" -Recurse -Filter "index.html" | ForEach-Object {
+  $content = [System.IO.File]::ReadAllText($_.FullName, [System.Text.Encoding]::UTF8)
+  # Replace content between <body...> and first <script with just an empty div
+  $patched = [regex]::Replace($content,
+    '(<body[^>]*>).*?(<script\b)',
+    '$1<div id="__next"></div>$2',
+    'Singleline')
+  if ($patched -ne $content) {
+    [System.IO.File]::WriteAllText($_.FullName, $patched, (New-Object System.Text.UTF8Encoding $false))
+  }
+}
+Write-Host "   ✓ Hydration-Fix angewendet" -ForegroundColor Green
+
+Write-Host "[3/5] SPA Fallback erzeugen..."
 if (Test-Path "out/index.html") {
   Copy-Item "out/index.html" "out/404.html" -Force
   Write-Host "   ✓ out/404.html erstellt" -ForegroundColor Green
@@ -97,14 +114,14 @@ if (Test-Path "out/index.html") {
   exit 1
 }
 
-# ── 3. Capacitor Sync ─────────────────────────────────────
-Write-Host "[3/4] Capacitor Sync → Android..."
+# ── 4. Capacitor Sync ─────────────────────────────────────
+Write-Host "[4/5] Capacitor Sync → Android..."
 npx cap sync android
 if ($LASTEXITCODE -ne 0) { Write-Error "Capacitor Sync fehlgeschlagen!"; exit 1 }
 Write-Host "   ✓ Android-Projekt aktualisiert" -ForegroundColor Green
 
-# ── 4. Gradle APK Build ───────────────────────────────────
-Write-Host "[4/4] Gradle APK Build ($Variant)..."
+# ── 5. Gradle APK Build ───────────────────────────────────
+Write-Host "[5/5] Gradle APK Build ($Variant)..."
 Set-Location "$Root\android"
 
 if ($Variant -eq "release") {
