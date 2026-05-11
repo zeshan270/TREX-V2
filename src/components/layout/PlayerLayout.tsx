@@ -223,13 +223,12 @@ export default function PlayerLayout({ children }: { children: React.ReactNode }
         window.history.pushState({ trex: "guard" }, "");
         return;
       }
-      const parentMap: Record<string, string> = {
-        "/live": "/", "/epg": "/", "/movies": "/", "/series": "/",
-        "/search": "/", "/favorites": "/", "/settings": "/", "/genres": "/",
-        "/trending": "/",
-      };
-      if (p.startsWith("/browse/")) { nav("/genres"); }
-      else { nav(parentMap[p] || "/"); }
+      // Navigate to logical parent page
+      if (p.startsWith("/movies/")) { nav("/movies"); }
+      else if (p.startsWith("/series/")) { nav("/series"); }
+      else if (p.startsWith("/player/")) { nav("/"); }
+      else if (p.startsWith("/browse/")) { nav("/genres"); }
+      else { nav("/"); }
       window.history.pushState({ trex: "guard" }, "");
     };
     window.addEventListener("popstate", handlePopState);

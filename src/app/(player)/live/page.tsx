@@ -355,8 +355,30 @@ export default function LiveTVPage() {
     }
   };
 
+  // "Alle [Country]" state — load ALL subcategories for a country
+  const [loadingCountryAll, setLoadingCountryAll] = useState(false);
+
   const handleCategorySelect = (catId: string | null) => {
+    if (catId === null && selectedCountry) {
+      // "Alle [Country]" — load all channels from all subcategories
+      setSelectedCategory(null);
+      setLoadingCountryAll(true);
+      const group = countryGroups.find((g) => g.code === selectedCountry);
+      if (!group || !creds) { setLoadingCountryAll(false); return; }
+      const catIds = group.categories.map((c) => c.categoryId);
+      Promise.all(catIds.map((id) => fetchLiveStreams(creds, id).catch(() => [] as Channel[])))
+        .then((results) => {
+          const all = results.flat();
+          const unique = Array.from(new Map(all.map((c) => [c.id, c])).values());
+          setChannels(unique);
+          setPlaylist(unique);
+          setLoadingCountryAll(false);
+        })
+        .catch(() => setLoadingCountryAll(false));
+      return;
+    }
     setSelectedCategory(catId);
+    setLoadingCountryAll(false);
   };
 
   // Keyboard navigation for grid items
@@ -391,7 +413,7 @@ export default function LiveTVPage() {
     );
   }
 
-  const needsCategory = !selectedCategory && !searchQuery && !showFavoritesOnly && !showAllChannels;
+  const needsCategory = !selectedCategory && !searchQuery && !showFavoritesOnly && !showAllChannels && !loadingCountryAll && channels.length === 0;
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -529,7 +551,7 @@ export default function LiveTVPage() {
             <p className="text-lg text-gray-400">{t("live.selectCategory")}</p>
             <p className="text-sm text-gray-500 mt-1">{t("live.selectCategoryDesc")}</p>
           </div>
-        ) : loadingChannels ? (
+        ) : loadingChannels || loadingCountryAll ? (
           <div className="flex items-center justify-center py-16">
             <LoadingSpinner text={t("common.loading")} />
           </div>
