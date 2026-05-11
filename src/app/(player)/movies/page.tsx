@@ -118,6 +118,10 @@ export default function MoviesPage() {
       .then((cats) => {
         setCategories(cats);
         setLoading(false);
+        if (!selectedCategory && cats.length > 0) {
+          const nonAdult = cats.find((c) => !/adult|xxx|18\+/i.test(c.categoryName));
+          setSelectedCategory((nonAdult || cats[0]).categoryId);
+        }
       })
       .catch((err) => {
         setError(err.message);
