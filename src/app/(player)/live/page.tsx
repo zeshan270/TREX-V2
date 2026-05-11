@@ -91,8 +91,10 @@ export default function LiveTVPage() {
   // Auto-switch from favorites when there are none
   const autoSwitched = useRef(false);
   useEffect(() => {
+    console.log("[auto-switch]", { autoSwitched: autoSwitched.current, showFavoritesOnly, favLive: favorites.filter(f => f.streamType === "live").length, cats: categories.length, groups: countryGroups.length });
     if (!autoSwitched.current && showFavoritesOnly && !favorites.some((f) => f.streamType === "live") && categories.length > 0) {
       autoSwitched.current = true;
+      console.log("[auto-switch] SWITCHING to DE");
       setShowFavoritesOnly(false);
       const de = countryGroups.find((g) => g.code === "DE");
       if (de && de.categories.length > 0) {
